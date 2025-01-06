@@ -3,10 +3,8 @@ import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 import folium
 from folium.plugins import Draw
-import geopandas as gpd
-from shapely.geometry import Polygon
+from streamlit_folium import folium_static  # Import folium_static
 import numpy as np
-import pyproj
 
 # Set page title
 st.title('Volume Calculation from DEM and TIFF')
@@ -86,7 +84,7 @@ if tiff_file and dem_file:
     # Add Draw plugin for drawing polygons
     Draw(export=True).add_to(m)
 
-    # Display the map
+    # Display the map using folium_static
     folium_static(m)
 
     # Placeholder for volume calculation
