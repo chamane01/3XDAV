@@ -4,3 +4,4 @@ numpy
 rasterio
 leafmap
 lazrs
+xarray
