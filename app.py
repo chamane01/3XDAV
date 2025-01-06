@@ -1,103 +1,96 @@
 import streamlit as st
-import laspy
-import numpy as np
 import rasterio
-from rasterio.transform import from_origin
-import leafmap.foliumap as leafmap
+from rasterio.warp import calculate_default_transform, reproject, Resampling
+import folium
+from folium.plugins import Draw
+import geopandas as gpd
+from shapely.geometry import Polygon
+import numpy as np
+import pyproj
 
-# Function to create a raster from point cloud data
-def create_raster(points, resolution, raster_type='DTM'):
-    x = points['x']
-    y = points['y']
-    z = points['z']
+# Set page title
+st.title('Volume Calculation from DEM and TIFF')
 
-    # Create a grid
-    x_min, x_max = np.min(x), np.max(x)
-    y_min, y_max = np.min(y), np.max(y)
+# File uploaders
+tiff_file = st.file_uploader("Upload TIFF file", type=["tiff", "tif"])
+dem_file = st.file_uploader("Upload DEM file", type=["tiff", "tif", "dem"])
 
-    # Add a small buffer to the grid bounds to ensure all points are included
-    buffer = resolution  # Add a buffer of one resolution unit
-    x_min -= buffer
-    x_max += buffer
-    y_min -= buffer
-    y_max += buffer
+if tiff_file and dem_file:
+    # Read TIFF file
+    tiff_bytes = tiff_file.read()
+    tiff_raster = rasterio.MemoryFile(tiff_bytes).open()
+    tiff_crs = tiff_raster.crs.to_epsg()  # Get CRS as EPSG code
+    tiff_transform = tiff_raster.transform
+    tiff_array = tiff_raster.read(1)
 
-    cols = int((x_max - x_min) / resolution)
-    rows = int((y_max - y_min) / resolution)
+    # Read DEM file
+    dem_bytes = dem_file.read()
+    dem_raster = rasterio.MemoryFile(dem_bytes).open()
+    dem_crs = dem_raster.crs.to_epsg()  # Get CRS as EPSG code
+    dem_transform = dem_raster.transform
+    dem_array = dem_raster.read(1)
 
-    grid = np.zeros((rows, cols), dtype=np.float32)
+    # Reproject DEM to match TIFF CRS if necessary
+    if dem_crs != tiff_crs:
+        st.write(f"Reprojecting DEM from EPSG:{dem_crs} to EPSG:{tiff_crs}...")
+        transform, width, height = calculate_default_transform(
+            f"EPSG:{dem_crs}", f"EPSG:{tiff_crs}", dem_raster.width, dem_raster.height, *dem_raster.bounds
+        )
+        reprojected_dem = np.empty((height, width))
+        reproject(
+            source=dem_array,
+            destination=reprojected_dem,
+            src_transform=dem_transform,
+            src_crs=f"EPSG:{dem_crs}",
+            dst_transform=transform,
+            dst_crs=f"EPSG:{tiff_crs}",
+            resampling=Resampling.nearest
+        )
+        dem_array = reprojected_dem
+        dem_transform = transform
 
-    for i in range(len(x)):
-        col = int((x[i] - x_min) / resolution)
-        row = int((y_max - y[i]) / resolution)
+    # Reproject TIFF and DEM to EPSG:4326 for Folium display
+    if tiff_crs != 4326:
+        st.write(f"Reprojecting TIFF from EPSG:{tiff_crs} to EPSG:4326 for map display...")
+        transform_4326, width_4326, height_4326 = calculate_default_transform(
+            f"EPSG:{tiff_crs}", "EPSG:4326", tiff_raster.width, tiff_raster.height, *tiff_raster.bounds
+        )
+        reprojected_tiff = np.empty((height_4326, width_4326))
+        reproject(
+            source=tiff_array,
+            destination=reprojected_tiff,
+            src_transform=tiff_transform,
+            src_crs=f"EPSG:{tiff_crs}",
+            dst_transform=transform_4326,
+            dst_crs="EPSG:4326",
+            resampling=Resampling.nearest
+        )
+        tiff_array = reprojected_tiff
+        tiff_transform = transform_4326
 
-        # Ensure indices are within bounds
-        if 0 <= row < rows and 0 <= col < cols:
-            if raster_type == 'DTM':
-                grid[row, col] = min(grid[row, col], z[i]) if grid[row, col] != 0 else z[i]
-            else:  # DSM
-                grid[row, col] = max(grid[row, col], z[i])
+    # Create a folium map centered on the TIFF raster
+    bounds = rasterio.warp.transform_bounds(f"EPSG:{tiff_crs}", "EPSG:4326", *tiff_raster.bounds)
+    center = [(bounds[1] + bounds[3]) / 2, (bounds[0] + bounds[2]) / 2]
+    m = folium.Map(location=center, zoom_start=10)
 
-    if np.all(grid == 0):
-        raise ValueError("No points fall within the grid bounds. Check the resolution or coordinate range.")
+    # Display TIFF as an image overlay
+    folium.raster_layers.ImageOverlay(
+        image=tiff_array,
+        bounds=[[bounds[1], bounds[0]], [bounds[3], bounds[2]]],
+        opacity=0.7,
+        interactive=True,
+        cross_origin=False,
+        zindex=1
+    ).add_to(m)
 
-    transform = from_origin(x_min, y_max, resolution, resolution)
-    return grid, transform
+    # Add Draw plugin for drawing polygons
+    Draw(export=True).add_to(m)
 
-# Streamlit app
-st.title("LAZ/LAS to DTM/DSM Converter")
+    # Display the map
+    folium_static(m)
 
-# File upload
-uploaded_file = st.file_uploader("Upload a LAZ/LAS file", type=["laz", "las"])
+    # Placeholder for volume calculation
+    st.write("Volume calculation will be displayed here after drawing a polygon.")
 
-if uploaded_file is not None:
-    try:
-        # Read the LAZ/LAS file
-        las = laspy.read(uploaded_file)
-        st.write(f"Number of points: {len(las.points)}")  # Debug: Check number of points
-        st.write(f"X range: {np.min(las.x)} to {np.max(las.x)}")  # Debug: Check X range
-        st.write(f"Y range: {np.min(las.y)} to {np.max(las.y)}")  # Debug: Check Y range
-        st.write(f"Z range: {np.min(las.z)} to {np.max(las.z)}")  # Debug: Check Z range
-
-        if len(las.points) == 0:
-            st.error("The file contains no points. Please upload a valid LAZ/LAS file.")
-        else:
-            points = {'x': las.x, 'y': las.y, 'z': las.z}
-
-            # Calculate the coordinate range
-            x_range = np.max(las.x) - np.min(las.x)
-            y_range = np.max(las.y) - np.min(las.y)
-
-            # Set a default resolution based on the coordinate range
-            default_resolution = min(x_range, y_range) / 100  # Default to 1% of the smaller range
-            resolution = st.slider("Resolution (meters)", 0.1, float(min(x_range, y_range)), default_resolution)
-
-            try:
-                # Create DTM and DSM
-                dtm, dtm_transform = create_raster(points, resolution, 'DTM')
-                dsm, dsm_transform = create_raster(points, resolution, 'DSM')
-
-                # Save rasters to temporary files
-                dtm_path = "dtm.tif"
-                dsm_path = "dsm.tif"
-
-                with rasterio.open(dtm_path, 'w', driver='GTiff', height=dtm.shape[0], width=dtm.shape[1],
-                                   count=1, dtype=dtm.dtype, crs='EPSG:4326', transform=dtm_transform) as dst:
-                    dst.write(dtm, 1)
-
-                with rasterio.open(dsm_path, 'w', driver='GTiff', height=dsm.shape[0], width=dsm.shape[1],
-                                   count=1, dtype=dsm.dtype, crs='EPSG:4326', transform=dsm_transform) as dst:
-                    dst.write(dsm, 1)
-
-                # Display rasters on an interactive map
-                st.subheader("DTM and DSM Visualization")
-                m = leafmap.Map()
-                m.add_raster(dtm_path, layer_name="DTM", colormap="terrain")
-                m.add_raster(dsm_path, layer_name="DSM", colormap="terrain")
-                m.to_streamlit(height=500)
-
-            except ValueError as e:
-                st.error(str(e))
-
-    except Exception as e:
-        st.error(f"An error occurred: {str(e)}")
+else:
+    st.write("Please upload both TIFF and DEM files.")
