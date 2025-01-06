@@ -64,41 +64,40 @@ if uploaded_file is not None:
         else:
             points = {'x': las.x, 'y': las.y, 'z': las.z}
 
-            # Parameters
-            resolution = st.slider("Resolution (meters)", 0.1, 10.0, 1.0)
-
-            # Check if resolution is appropriate for the coordinate range
+            # Calculate the coordinate range
             x_range = np.max(las.x) - np.min(las.x)
             y_range = np.max(las.y) - np.min(las.y)
-            if resolution > x_range or resolution > y_range:
-                st.error("Resolution is too large for the coordinate range. Please choose a smaller resolution.")
-            else:
-                try:
-                    # Create DTM and DSM
-                    dtm, dtm_transform = create_raster(points, resolution, 'DTM')
-                    dsm, dsm_transform = create_raster(points, resolution, 'DSM')
 
-                    # Save rasters to temporary files
-                    dtm_path = "dtm.tif"
-                    dsm_path = "dsm.tif"
+            # Set a default resolution based on the coordinate range
+            default_resolution = min(x_range, y_range) / 100  # Default to 1% of the smaller range
+            resolution = st.slider("Resolution (meters)", 0.1, float(min(x_range, y_range)), default_resolution)
 
-                    with rasterio.open(dtm_path, 'w', driver='GTiff', height=dtm.shape[0], width=dtm.shape[1],
-                                       count=1, dtype=dtm.dtype, crs='EPSG:4326', transform=dtm_transform) as dst:
-                        dst.write(dtm, 1)
+            try:
+                # Create DTM and DSM
+                dtm, dtm_transform = create_raster(points, resolution, 'DTM')
+                dsm, dsm_transform = create_raster(points, resolution, 'DSM')
 
-                    with rasterio.open(dsm_path, 'w', driver='GTiff', height=dsm.shape[0], width=dsm.shape[1],
-                                       count=1, dtype=dsm.dtype, crs='EPSG:4326', transform=dsm_transform) as dst:
-                        dst.write(dsm, 1)
+                # Save rasters to temporary files
+                dtm_path = "dtm.tif"
+                dsm_path = "dsm.tif"
 
-                    # Display rasters on an interactive map
-                    st.subheader("DTM and DSM Visualization")
-                    m = leafmap.Map()
-                    m.add_raster(dtm_path, layer_name="DTM", colormap="terrain")
-                    m.add_raster(dsm_path, layer_name="DSM", colormap="terrain")
-                    m.to_streamlit(height=500)
+                with rasterio.open(dtm_path, 'w', driver='GTiff', height=dtm.shape[0], width=dtm.shape[1],
+                                   count=1, dtype=dtm.dtype, crs='EPSG:4326', transform=dtm_transform) as dst:
+                    dst.write(dtm, 1)
 
-                except ValueError as e:
-                    st.error(str(e))
+                with rasterio.open(dsm_path, 'w', driver='GTiff', height=dsm.shape[0], width=dsm.shape[1],
+                                   count=1, dtype=dsm.dtype, crs='EPSG:4326', transform=dsm_transform) as dst:
+                    dst.write(dsm, 1)
+
+                # Display rasters on an interactive map
+                st.subheader("DTM and DSM Visualization")
+                m = leafmap.Map()
+                m.add_raster(dtm_path, layer_name="DTM", colormap="terrain")
+                m.add_raster(dsm_path, layer_name="DSM", colormap="terrain")
+                m.to_streamlit(height=500)
+
+            except ValueError as e:
+                st.error(str(e))
 
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
