@@ -3,3 +3,4 @@ laspy
 numpy
 rasterio
 leafmap
+lazrs
