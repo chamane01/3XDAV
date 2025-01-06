@@ -1,0 +1,5 @@
+streamlit==1.26.0
+laspy==2.4.0
+numpy==1.23.5
+rasterio==1.3.6
+leafmap==0.18.1
