@@ -5,7 +5,7 @@ import folium
 from folium.plugins import Draw
 from streamlit_folium import st_folium  # Use st_folium for bidirectional communication
 import numpy as np
-from shapely.geometry import shape
+from shapely.geometry import Polygon  # Import Polygon
 import pyproj
 
 # Set page title
@@ -105,7 +105,7 @@ if tiff_file and dem_file:
             transformer = pyproj.Transformer.from_crs("EPSG:4326", f"EPSG:{dem_crs}", always_xy=True)
             polygon_coords = list(polygon.exterior.coords)
             reprojected_coords = [transformer.transform(x, y) for x, y in polygon_coords]
-            reprojected_polygon = Polygon(reprojected_coords)
+            reprojected_polygon = Polygon(reprojected_coords)  # Create a Shapely Polygon
 
             # Create a mask for the DEM using the polygon
             from rasterio.features import geometry_mask
