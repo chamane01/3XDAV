@@ -1,8 +1,9 @@
 streamlit
-laspy
-numpy
 rasterio
-leafmap
-lazrs
-xarray
-localtileserve
+folium
+geopandas
+shapely
+numpy
+pandas
+pyproj
+matplotlib
