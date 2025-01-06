@@ -3,7 +3,7 @@ import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 import folium
 from folium.plugins import Draw
-from streamlit_folium import folium_static
+from streamlit_folium import st_folium  # Use st_folium for bidirectional communication
 import numpy as np
 from shapely.geometry import shape
 import pyproj
@@ -84,58 +84,44 @@ if tiff_file and dem_file:
     ).add_to(m)
 
     # Add Draw plugin for drawing polygons
-    draw = Draw(export=True)
+    draw = Draw(export=True, draw_options={"polygon": True, "marker": False, "circle": False, "polyline": False})
     draw.add_to(m)
 
-    # Display the map using folium_static
-    folium_static(m)
+    # Use st_folium to display the map and capture drawn features
+    drawn_data = st_folium(m, width=700, height=500)
 
-    # Button to confirm the drawn polygon
-    if st.button("Confirm Polygon"):
-        # Use JavaScript to capture the drawn polygon and send it to Streamlit
-        st.markdown(
-            """
-            <script>
-            // Listen for draw events
-            map.on('draw:created', function (e) {
-                const layer = e.layer;
-                const geoJSON = layer.toGeoJSON();
-                const data = JSON.stringify(geoJSON);
-                // Send the data to Streamlit
-                parent.window.stSessionState.set('drawn_polygon', data);
-            });
-            </script>
-            """,
-            unsafe_allow_html=True
-        )
+    # Check if a polygon has been drawn
+    if drawn_data and drawn_data.get("last_active_drawing"):
+        drawn_polygon = drawn_data["last_active_drawing"]["geometry"]
+        st.session_state.drawn_polygon = drawn_polygon
 
-        # Get the drawn polygon from Streamlit's session state
-        if 'drawn_polygon' in st.session_state:
-            drawn_polygon = st.session_state.drawn_polygon
-            if drawn_polygon:
-                drawn_polygon = shape(drawn_polygon['geometry'])
+    # Button to calculate volume
+    if st.button("Calculate Volume"):
+        if 'drawn_polygon' in st.session_state and st.session_state.drawn_polygon:
+            # Convert the drawn polygon to a Shapely geometry
+            polygon = shape(st.session_state.drawn_polygon)
 
-                # Reproject the polygon to match the DEM CRS
-                transformer = pyproj.Transformer.from_crs("EPSG:4326", f"EPSG:{dem_crs}", always_xy=True)
-                polygon_coords = list(drawn_polygon.exterior.coords)
-                reprojected_coords = [transformer.transform(x, y) for x, y in polygon_coords]
-                reprojected_polygon = Polygon(reprojected_coords)
+            # Reproject the polygon to match the DEM CRS
+            transformer = pyproj.Transformer.from_crs("EPSG:4326", f"EPSG:{dem_crs}", always_xy=True)
+            polygon_coords = list(polygon.exterior.coords)
+            reprojected_coords = [transformer.transform(x, y) for x, y in polygon_coords]
+            reprojected_polygon = Polygon(reprojected_coords)
 
-                # Create a mask for the DEM using the polygon
-                from rasterio.features import geometry_mask
-                mask = geometry_mask([reprojected_polygon], transform=dem_transform, out_shape=dem_array.shape, invert=True)
+            # Create a mask for the DEM using the polygon
+            from rasterio.features import geometry_mask
+            mask = geometry_mask([reprojected_polygon], transform=dem_transform, out_shape=dem_array.shape, invert=True)
 
-                # Extract elevation values within the polygon
-                elevation_values = dem_array[mask]
+            # Extract elevation values within the polygon
+            elevation_values = dem_array[mask]
 
-                # Calculate the volume
-                cell_area = abs(dem_transform[0] * dem_transform[4])  # Cell area in square meters
-                volume = np.sum(elevation_values) * cell_area  # Volume in cubic meters
+            # Calculate the volume
+            cell_area = abs(dem_transform[0] * dem_transform[4])  # Cell area in square meters
+            volume = np.sum(elevation_values) * cell_area  # Volume in cubic meters
 
-                # Display the result
-                st.write(f"**Calculated Volume:** {volume:.2f} cubic meters")
+            # Display the result
+            st.write(f"**Calculated Volume:** {volume:.2f} cubic meters")
         else:
-            st.warning("Please draw a polygon on the map and confirm it.")
+            st.warning("Please draw a polygon on the map before calculating the volume.")
 
 else:
     st.write("Please upload both TIFF and DEM files.")
