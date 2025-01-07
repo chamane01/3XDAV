@@ -1,118 +1,86 @@
 import streamlit as st
 import rasterio
+from rasterio.warp import calculate_default_transform, reproject, Resampling
 import numpy as np
 import folium
-from folium.plugins import Draw
 from streamlit_folium import st_folium
-import matplotlib.pyplot as plt
 from shapely.geometry import shape
 from rasterio.mask import mask
-from rasterio.warp import calculate_default_transform, reproject, Resampling
-
-# Fonction pour reprojeter un raster dans un nouveau système de coordonnées
-def reproject_raster(src, dst_crs):
-    transform, width, height = calculate_default_transform(
-        src.crs, dst_crs, src.width, src.height, *src.bounds
-    )
-    profile = src.profile.copy()
-    profile.update({
-        'crs': dst_crs,
-        'transform': transform,
-        'width': width,
-        'height': height
-    })
-
-    data = np.empty((src.count, height, width), dtype=src.dtypes[0])
-
-    for i in range(1, src.count + 1):
-        reproject(
-            source=rasterio.band(src, i),
-            destination=data[i - 1],
-            src_transform=src.transform,
-            src_crs=src.crs,
-            dst_transform=transform,
-            dst_crs=dst_crs,
-            resampling=Resampling.nearest
-        )
-
-    return data, profile
+import geopandas as gpd
+import matplotlib.pyplot as plt
 
 # Titre de l'application
-st.title("Calculateur de volumes à partir d'un DEM avec emprises polygonales")
+st.title("Calculateur de volumes à partir d'un DEM et d'une emprise polygonale")
 
-# Importer un fichier DEM
-uploaded_file = st.file_uploader("Téléchargez un fichier DEM (GeoTIFF uniquement) :", type=["tif", "tiff"])
+# Téléchargement du fichier DEM
+uploaded_dem = st.file_uploader("Téléchargez un fichier DEM (GeoTIFF uniquement) :", type=["tif", "tiff"])
 
-if uploaded_file:
-    # Charger le DEM
-    with rasterio.open(uploaded_file) as src:
-        original_crs = src.crs
-        dem_data, profile = reproject_raster(src, "EPSG:4326")
-        dem_data[dem_data == src.nodata] = np.nan  # Gérer les valeurs no_data
-        bounds = rasterio.transform.array_bounds(
-            profile['height'], profile['width'], profile['transform']
+# Téléchargement d'une emprise polygonale (GeoJSON, Shapefile, etc.)
+uploaded_polygon = st.file_uploader("Téléchargez une emprise polygonale (GeoJSON ou Shapefile) :", type=["geojson", "zip"])
+
+if uploaded_dem and uploaded_polygon:
+    # Charger le DEM et reprojeter en EPSG:4326
+    with rasterio.open(uploaded_dem) as src:
+        profile = src.profile
+        dst_crs = "EPSG:4326"  # Système de coordonnées cible
+        transform, width, height = calculate_default_transform(
+            src.crs, dst_crs, src.width, src.height, *src.bounds
         )
+        profile.update({
+            "crs": dst_crs,
+            "transform": transform,
+            "width": width,
+            "height": height
+        })
+        
+        with rasterio.MemoryFile() as memfile:
+            with memfile.open(**profile) as dst:
+                for i in range(1, src.count + 1):
+                    reproject(
+                        source=rasterio.band(src, i),
+                        destination=rasterio.band(dst, i),
+                        src_transform=src.transform,
+                        src_crs=src.crs,
+                        dst_transform=transform,
+                        dst_crs=dst_crs,
+                        resampling=Resampling.nearest
+                    )
+                dem_data = dst.read(1)
+                dem_data[dem_data == src.nodata] = np.nan
 
-    st.success("Fichier DEM chargé et reprojeté en EPSG:4326 avec succès !")
+    # Charger la polygonale
+    if uploaded_polygon.name.endswith(".zip"):
+        gdf = gpd.read_file(f"zip://{uploaded_polygon}")
+    else:
+        gdf = gpd.read_file(uploaded_polygon)
 
-    # Afficher les métadonnées
-    st.write("**Dimensions du DEM :**", dem_data.shape)
-    st.write("**Résolution :**", profile["transform"][0], "unités par pixel")
-    st.write("**Bornes géographiques :**")
-    st.write(f"  - Min Longitude : {bounds[0]}, Max Longitude : {bounds[2]}")
-    st.write(f"  - Min Latitude : {bounds[1]}, Max Latitude : {bounds[3]}")
+    if gdf.crs.to_string() != "EPSG:4326":
+        gdf = gdf.to_crs("EPSG:4326")
 
-    # Affichage de la carte pour définir une emprise polygonale
-    st.subheader("Définir une emprise polygonale")
-    m = folium.Map(location=[(bounds[3] + bounds[1]) / 2, (bounds[2] + bounds[0]) / 2], zoom_start=10)
+    st.success("Fichiers chargés et reprojetés avec succès !")
 
-    # Ajouter l'outil de dessin pour les polygonales
-    draw = Draw(export=True)
-    draw.add_to(m)
+    # Masquer le DEM en fonction de l'emprise
+    polygons = [shape(geom) for geom in gdf.geometry]
+    with rasterio.open(uploaded_dem) as src:
+        out_image, out_transform = mask(src, polygons, crop=True)
+        out_image[out_image == src.nodata] = np.nan
 
-    # Intégrer la carte dans Streamlit
-    output = st_folium(m, width=700, height=500)
+    # Afficher la zone découpée
+    st.subheader("Zone découpée")
+    fig, ax = plt.subplots()
+    ax.imshow(out_image[0], cmap="terrain")
+    st.pyplot(fig)
 
-    # Vérifier si une géométrie a été dessinée
-    if output["last_active_drawing"]:
-        # Charger la géométrie dessinée
-        geojson = output["last_active_drawing"]["geometry"]
-        st.write("Emprise polygonale sélectionnée :")
-        st.json(geojson)
+    # Entrée de l'altitude de référence
+    reference_altitude = st.number_input("Altitude de référence (mètres) :", value=0.0, step=0.1)
 
-        # Convertir GeoJSON en géométrie Shapely
-        polygon = shape(geojson)
+    if st.button("Calculer le volume"):
+        # Calcul des volumes
+        cell_area = abs(profile["transform"][0]) * abs(profile["transform"][4])
+        above_reference = np.nansum((out_image[0] - reference_altitude)[out_image[0] > reference_altitude]) * cell_area
+        below_reference = np.nansum((reference_altitude - out_image[0])[out_image[0] < reference_altitude]) * cell_area
 
-        # Masquer le DEM à l'aide de la géométrie
-        with rasterio.open(uploaded_file) as src:
-            out_image, out_transform = mask(src, [polygon], crop=True)
-            out_image[out_image == src.nodata] = np.nan
-
-        # Afficher la zone découpée
-        st.subheader("Zone découpée")
-        fig, ax = plt.subplots()
-        ax.imshow(out_image[0], cmap="terrain")
-        st.pyplot(fig)
-
-        # Choisir une altitude de référence
-        st.subheader("Calcul du volume")
-        reference_altitude = st.number_input(
-            "Altitude de référence (mètres) :", value=0.0, step=0.1, format="%.1f"
-        )
-
-        if st.button("Calculer le volume"):
-            # Calculer les volumes pour la zone sélectionnée
-            cell_area = profile["transform"][0] * abs(profile["transform"][4])  # Surface d'une cellule
-            above_reference = np.nansum(
-                (out_image[0] - reference_altitude)[out_image[0] > reference_altitude]
-            ) * cell_area
-            below_reference = np.nansum(
-                (reference_altitude - out_image[0])[out_image[0] < reference_altitude]
-            ) * cell_area
-
-            # Résultats
-            st.write(f"**Volume au-dessus de l'altitude de référence :** {above_reference:.2f} m³")
-            st.write(f"**Volume en dessous de l'altitude de référence :** {below_reference:.2f} m³")
-            st.write(
-                f"**Volume net (différence) :** {above_reference - below_reference:.2f} m³"
-            )
+        # Résultats
+        st.write(f"**Volume au-dessus de l'altitude de référence :** {above_reference:.2f} m³")
+        st.write(f"**Volume en dessous de l'altitude de référence :** {below_reference:.2f} m³")
+        st.write(f"**Volume net (différence) :** {above_reference - below_reference:.2f} m³")
