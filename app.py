@@ -1,10 +1,15 @@
 import streamlit as st
 import rasterio
 import numpy as np
+import folium
+from folium.plugins import Draw
+from streamlit_folium import st_folium
 import matplotlib.pyplot as plt
+from shapely.geometry import shape
+from rasterio.mask import mask
 
 # Titre de l'application
-st.title("Calculateur de volumes à partir d'un DEM avec emprise personnalisée")
+st.title("Calculateur de volumes à partir d'un DEM avec emprises polygonales")
 
 # Importer un fichier DEM
 uploaded_file = st.file_uploader("Téléchargez un fichier DEM (GeoTIFF uniquement) :", type=["tif", "tiff"])
@@ -20,49 +25,43 @@ if uploaded_file:
 
     st.success("Fichier DEM chargé avec succès !")
 
-    # Affichage des métadonnées
+    # Afficher les métadonnées
     st.write("**Dimensions du DEM :**", dem_data.shape)
     st.write("**Résolution :**", profile["transform"][0], "unités par pixel")
     st.write("**Bornes géographiques :**")
     st.write(f"  - Min Longitude : {bounds.left}, Max Longitude : {bounds.right}")
     st.write(f"  - Min Latitude : {bounds.bottom}, Max Latitude : {bounds.top}")
 
-    # Afficher le DEM sous forme d'image
-    st.subheader("Aperçu du DEM")
-    fig, ax = plt.subplots()
-    cax = ax.imshow(dem_data, cmap="terrain", extent=(bounds.left, bounds.right, bounds.bottom, bounds.top))
-    fig.colorbar(cax, ax=ax, label="Altitude (mètres)")
-    st.pyplot(fig)
+    # Affichage de la carte pour définir une emprise polygonale
+    st.subheader("Définir une emprise polygonale")
+    m = folium.Map(location=[(bounds.top + bounds.bottom) / 2, (bounds.left + bounds.right) / 2], zoom_start=10)
 
-    # Définir une emprise pour la zone d'intérêt
-    st.subheader("Définir l'emprise pour le calcul du volume")
-    col1, col2 = st.columns(2)
+    # Ajouter l'outil de dessin pour les polygonales
+    draw = Draw(export=True)
+    draw.add_to(m)
 
-    with col1:
-        min_long = st.number_input("Longitude minimale :", value=bounds.left)
-        max_long = st.number_input("Longitude maximale :", value=bounds.right)
+    # Intégrer la carte dans Streamlit
+    output = st_folium(m, width=700, height=500)
 
-    with col2:
-        min_lat = st.number_input("Latitude minimale :", value=bounds.bottom)
-        max_lat = st.number_input("Latitude maximale :", value=bounds.top)
+    # Vérifier si une géométrie a été dessinée
+    if output["last_active_drawing"]:
+        # Charger la géométrie dessinée
+        geojson = output["last_active_drawing"]["geometry"]
+        st.write("Emprise polygonale sélectionnée :")
+        st.json(geojson)
 
-    # Vérification de la validité de l'emprise
-    if min_long >= max_long or min_lat >= max_lat:
-        st.error("L'emprise n'est pas valide. Vérifiez les coordonnées.")
-    else:
-        # Découper le DEM pour la zone d'emprise
-        row_start, col_start = ~transform * (min_long, max_lat)  # Indices pour la coordonnée supérieure gauche
-        row_end, col_end = ~transform * (max_long, min_lat)  # Indices pour la coordonnée inférieure droite
+        # Convertir GeoJSON en géométrie Shapely
+        polygon = shape(geojson)
 
-        row_start, col_start = int(row_start), int(col_start)
-        row_end, col_end = int(row_end), int(col_end)
-
-        cropped_dem = dem_data[row_start:row_end, col_start:col_end]
+        # Masquer le DEM à l'aide de la géométrie
+        with rasterio.open(uploaded_file) as src:
+            out_image, out_transform = mask(src, [polygon], crop=True)
+            out_image[out_image == src.nodata] = np.nan
 
         # Afficher la zone découpée
         st.subheader("Zone découpée")
         fig, ax = plt.subplots()
-        ax.imshow(cropped_dem, cmap="terrain", extent=(min_long, max_long, min_lat, max_lat))
+        ax.imshow(out_image[0], cmap="terrain")
         st.pyplot(fig)
 
         # Choisir une altitude de référence
@@ -75,10 +74,10 @@ if uploaded_file:
             # Calculer les volumes pour la zone sélectionnée
             cell_area = profile["transform"][0] * abs(profile["transform"][4])  # Surface d'une cellule
             above_reference = np.nansum(
-                (cropped_dem - reference_altitude)[cropped_dem > reference_altitude]
+                (out_image[0] - reference_altitude)[out_image[0] > reference_altitude]
             ) * cell_area
             below_reference = np.nansum(
-                (reference_altitude - cropped_dem)[cropped_dem < reference_altitude]
+                (reference_altitude - out_image[0])[out_image[0] < reference_altitude]
             ) * cell_area
 
             # Résultats
