@@ -52,12 +52,15 @@ if uploaded_dem:
     
     with rasterio.open(reprojected_dem_path) as src:
         dem_data = src.read(1)
-        dem_data[dem_data == src.nodata] = np.nan
+        dem_data[dem_data == src.nodata] = np.nan  # Remplace les nodata par NaN
         profile = src.profile
         bounds = src.bounds
 
     st.write("**Dimensions du DEM reprojeté :**", dem_data.shape)
     st.write("**Résolution :**", profile["transform"][0], "unités par pixel")
+
+    # Affichage d'un extrait des valeurs du DEM
+    st.write("**Valeurs du DEM (extrait)** :", dem_data.flatten()[:20])
 
 if uploaded_polygon:
     st.success("Polygonale chargée avec succès !")
@@ -86,20 +89,28 @@ if uploaded_polygon:
         ax.imshow(out_image[0], cmap="terrain")
         st.pyplot(fig)
 
+        # Calcul du volume
         st.subheader("Calcul du volume")
         reference_altitude = st.number_input(
             "Altitude de référence (mètres) :", value=0.0, step=0.1, format="%.1f"
         )
 
         if st.button("Calculer le volume"):
+            # Calcul de l'aire de chaque cellule
             cell_area = profile["transform"][0] * abs(profile["transform"][4])
-            above_reference = np.nansum(
-                (out_image[0] - reference_altitude)[out_image[0] > reference_altitude]
-            ) * cell_area
-            below_reference = np.nansum(
-                (reference_altitude - out_image[0])[out_image[0] < reference_altitude]
-            ) * cell_area
+            st.write("**Aire de la cellule** :", cell_area)  # Affiche l'aire de chaque cellule
 
-            st.write(f"**Volume au-dessus de l'altitude de référence :** {above_reference:.2f} m³")
-            st.write(f"**Volume en dessous de l'altitude de référence :** {below_reference:.2f} m³")
-            st.write(f"**Volume net (différence) :** {above_reference - below_reference:.2f} m³")
+            # Calcul du volume au-dessus de la référence
+            above_reference = (out_image[0] - reference_altitude)[out_image[0] > reference_altitude]
+            st.write("**Valeurs au-dessus de la référence** :", above_reference)
+            above_reference_volume = np.nansum(above_reference) * cell_area
+
+            # Calcul du volume en dessous de la référence
+            below_reference = (reference_altitude - out_image[0])[out_image[0] < reference_altitude]
+            st.write("**Valeurs en dessous de la référence** :", below_reference)
+            below_reference_volume = np.nansum(below_reference) * cell_area
+
+            # Affichage des résultats
+            st.write(f"**Volume au-dessus de l'altitude de référence :** {above_reference_volume:.2f} m³")
+            st.write(f"**Volume en dessous de l'altitude de référence :** {below_reference_volume:.2f} m³")
+            st.write(f"**Volume net (différence) :** {above_reference_volume - below_reference_volume:.2f} m³")
