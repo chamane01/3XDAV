@@ -9,8 +9,17 @@ st.title("Téléversement et visualisation de Shapefiles sur une carte dynamique
 
 # Fonction pour charger un Shapefile
 def load_shapefile(file):
-    gdf = gpd.read_file(file)
-    return gdf
+    try:
+        # Essayer d'abord avec pyogrio, puis avec fiona en cas d'échec
+        try:
+            gdf = gpd.read_file(file, engine="pyogrio")
+        except Exception as e:
+            st.warning(f"pyogrio a échoué, utilisation de fiona : {e}")
+            gdf = gpd.read_file(file, engine="fiona")
+        return gdf
+    except Exception as e:
+        st.error(f"Erreur lors de la lecture du fichier {file} : {e}")
+        return None
 
 # Fonction pour afficher les Shapefiles sur une carte Folium
 def display_shapefiles_on_map(shapefiles):
@@ -19,9 +28,9 @@ def display_shapefiles_on_map(shapefiles):
     
     # Ajouter chaque Shapefile à la carte avec le nom du fichier comme libellé
     for name, gdf in shapefiles.items():
-        for _, row in gdf.iterrows():
+        if gdf is not None:
             folium.GeoJson(
-                row['geometry'],
+                gdf.__geo_interface__,
                 name=name  # Utiliser le nom du fichier comme libellé de la couche
             ).add_to(m)
     
@@ -42,6 +51,14 @@ uploaded_files = st.file_uploader(
 shapefiles = {}
 
 if uploaded_files:
+    # Vérifier que tous les fichiers nécessaires sont présents
+    required_extensions = [".shp", ".shx", ".dbf"]
+    uploaded_file_names = [file.name for file in uploaded_files]
+    for ext in required_extensions:
+        if not any(name.endswith(ext) for name in uploaded_file_names):
+            st.error(f"Fichier {ext} manquant pour le Shapefile.")
+            st.stop()
+    
     # Créer un dossier temporaire pour stocker les fichiers téléversés
     temp_dir = "temp_shapefiles"
     os.makedirs(temp_dir, exist_ok=True)
@@ -56,12 +73,14 @@ if uploaded_files:
     for file in os.listdir(temp_dir):
         if file.endswith(".shp"):
             shapefile_path = os.path.join(temp_dir, file)
+            st.write(f"Tentative de lecture du fichier : {file}")
             gdf = load_shapefile(shapefile_path)
-            # Vérifier si le système de coordonnées est EPSG:4326, sinon le reprojeter
-            if gdf.crs != "EPSG:4326":
-                gdf = gdf.to_crs("EPSG:4326")
-            # Ajouter le Shapefile au dictionnaire avec le nom du fichier comme clé
-            shapefiles[file] = gdf
+            if gdf is not None:
+                # Vérifier si le système de coordonnées est EPSG:4326, sinon le reprojeter
+                if gdf.crs != "EPSG:4326":
+                    gdf = gdf.to_crs("EPSG:4326")
+                # Ajouter le Shapefile au dictionnaire avec le nom du fichier comme clé
+                shapefiles[file] = gdf
     
     # Afficher les Shapefiles sur la carte
     if shapefiles:
