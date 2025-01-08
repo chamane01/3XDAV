@@ -76,9 +76,10 @@ if uploaded_files:
             st.write(f"Tentative de lecture du fichier : {file}")
             gdf = load_shapefile(shapefile_path)
             if gdf is not None:
-                # Vérifier si le système de coordonnées est EPSG:4326, sinon le reprojeter
-                if gdf.crs != "EPSG:4326":
-                    gdf = gdf.to_crs("EPSG:4326")
+                # Vérifier si le système de coordonnées est défini
+                if gdf.crs is None:
+                    st.warning(f"Le fichier {file} n'a pas de système de coordonnées défini. Attribution de l'EPSG:4326 par défaut.")
+                    gdf.set_crs("EPSG:4326", inplace=True)
                 # Ajouter le Shapefile au dictionnaire avec le nom du fichier comme clé
                 shapefiles[file] = gdf
     
