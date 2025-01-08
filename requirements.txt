@@ -22,3 +22,4 @@ ezdxf
 opencv-python
 datetime
 pyogrio
+fiona
