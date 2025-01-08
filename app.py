@@ -1,63 +1,54 @@
 import streamlit as st
 import geopandas as gpd
 import folium
-from streamlit_folium import st_folium
+from streamlit_folium import folium_static
 import os
-import zipfile
-import tempfile
 
-# Fonction pour charger et afficher les fichiers Shapefile
-@st.cache_data
+# Titre de l'application
+st.title("Visualisation de Shapefiles extraits d'OSM")
+
+# Fonction pour charger les Shapefiles
 def load_shapefiles(directory):
-    shapefiles = {}
-    for file in os.listdir(directory):
-        if file.endswith(".shp"):
-            filepath = os.path.join(directory, file)
-            shapefiles[file] = gpd.read_file(filepath)
+    shapefiles = []
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if file.endswith(".shp"):
+                shapefile_path = os.path.join(root, file)
+                gdf = gpd.read_file(shapefile_path)
+                shapefiles.append(gdf)
     return shapefiles
 
-def create_map(shapefiles):
-    base_map = folium.Map(location=[0, 0], zoom_start=2)
-    for name, gdf in shapefiles.items():
-        if not gdf.empty:
-            folium.GeoJson(
-                gdf,
-                name=name,
-                tooltip=folium.GeoJsonTooltip(fields=list(gdf.columns)),
-            ).add_to(base_map)
-    folium.LayerControl().add_to(base_map)
-    return base_map
+# Upload du dossier contenant les Shapefiles
+uploaded_dir = st.file_uploader("Téléchargez un dossier contenant des Shapefiles", type=None, accept_multiple_files=True)
 
-# Interface utilisateur Streamlit
-st.title("Affichage des couches Shapefile téléversées")
-
-uploaded_file = st.file_uploader(
-    "Téléversez un fichier ZIP contenant vos fichiers Shapefile", type=["zip"]
-)
-
-if uploaded_file:
-    # Créer un dossier temporaire pour extraire les fichiers
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        zip_path = os.path.join(tmp_dir, "uploaded_zip.zip")
-        
-        # Sauvegarder le fichier ZIP téléversé
-        with open(zip_path, "wb") as f:
+if uploaded_dir is not None:
+    # Créer un dossier temporaire pour stocker les fichiers téléchargés
+    temp_dir = "temp_shapefiles"
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    # Enregistrer les fichiers téléchargés dans le dossier temporaire
+    for uploaded_file in uploaded_dir:
+        with open(os.path.join(temp_dir, uploaded_file.name), "wb") as f:
             f.write(uploaded_file.getbuffer())
-
-        # Extraire le fichier ZIP
-        with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            zip_ref.extractall(tmp_dir)
-
-        # Charger les fichiers Shapefile
-        shapefiles = load_shapefiles(tmp_dir)
-
-        if shapefiles:
-            st.write(f"{len(shapefiles)} couches trouvées :")
-            for name in shapefiles.keys():
-                st.write(f"- {name}")
-
-            # Créer une carte et l'afficher
-            map_ = create_map(shapefiles)
-            st_folium(map_, width=800, height=600)
-        else:
-            st.warning("Aucun fichier Shapefile valide trouvé dans le ZIP.")
+    
+    # Charger les Shapefiles
+    shapefiles = load_shapefiles(temp_dir)
+    
+    # Afficher les Shapefiles sur une carte Folium
+    if shapefiles:
+        m = folium.Map(location=[46.603354, 1.888334], zoom_start=6)  # Centré sur la France
+        
+        for gdf in shapefiles:
+            for _, row in gdf.iterrows():
+                folium.GeoJson(row['geometry']).add_to(m)
+        
+        folium_static(m)
+    else:
+        st.warning("Aucun fichier Shapefile trouvé dans le dossier.")
+    
+    # Nettoyer le dossier temporaire
+    for file in os.listdir(temp_dir):
+        os.remove(os.path.join(temp_dir, file))
+    os.rmdir(temp_dir)
+else:
+    st.info("Veuillez télécharger un dossier contenant des Shapefiles.")
