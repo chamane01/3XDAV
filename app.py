@@ -97,21 +97,41 @@ def dashboard():
     selected_route_id = st.selectbox("Sélectionner une route", options=route_options.keys(), format_func=lambda x: route_options[x])
 
     if selected_route_id:
-        # Récupérer les défauts pour la route sélectionnée
+        # Récupérer les missions et les défauts pour la route sélectionnée
         cur.execute('''
-            SELECT Defauts.type_defaut, Defauts.latitude, Defauts.longitude
-            FROM Defauts
-            JOIN Missions ON Defauts.mission_id = Missions.id
+            SELECT Missions.id, Missions.date, Defauts.type_defaut, Defauts.latitude, Defauts.longitude
+            FROM Missions
+            LEFT JOIN Defauts ON Missions.id = Defauts.mission_id
             WHERE Missions.route_id = ?
         ''', (selected_route_id,))
-        defauts_route = cur.fetchall()
+        missions_defauts = cur.fetchall()
 
-        if defauts_route:
-            st.write(f"### Défauts identifiés sur la route {route_options[selected_route_id]}:")
-            for defaut in defauts_route:
-                st.write(f"- **Type:** {defaut[0]}, **Latitude:** {defaut[1]}, **Longitude:** {defaut[2]}")
+        if missions_defauts:
+            st.write(f"### Missions et Défauts sur la route {route_options[selected_route_id]}:")
+            missions_dict = {}
+            for mission in missions_defauts:
+                mission_id, mission_date, type_defaut, latitude, longitude = mission
+                if mission_id not in missions_dict:
+                    missions_dict[mission_id] = {
+                        "date": mission_date,
+                        "defauts": []
+                    }
+                if type_defaut:  # Si un défaut est associé à la mission
+                    missions_dict[mission_id]["defauts"].append({
+                        "type": type_defaut,
+                        "latitude": latitude,
+                        "longitude": longitude
+                    })
+
+            for mission_id, mission_data in missions_dict.items():
+                st.write(f"**Mission du {mission_data['date']}**")
+                if mission_data["defauts"]:
+                    for defaut in mission_data["defauts"]:
+                        st.write(f"- **Type:** {defaut['type']}, **Latitude:** {defaut['latitude']}, **Longitude:** {defaut['longitude']}")
+                else:
+                    st.write("Aucun défaut identifié pour cette mission.")
         else:
-            st.write(f"Aucun défaut identifié sur la route {route_options[selected_route_id]}.")
+            st.write(f"Aucune mission ou défaut identifié sur la route {route_options[selected_route_id]}.")
 
     # Section 5: Génération de Rapports
     st.header("Générer des Rapports")
