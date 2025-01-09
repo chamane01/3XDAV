@@ -83,20 +83,35 @@ def dashboard():
     else:
         st.write(f"Aucune donnée disponible pour {selected_month}.")
 
-    # Section 3: Voir Toutes les Routes
-    st.header("Voir Toutes les Routes")
-    if st.button("Afficher toutes les routes"):
-        cur.execute('SELECT * FROM Routes')
-        routes = cur.fetchall()
-        st.write("Liste des routes:")
-        for route in routes:
-            st.write(f"- {route[1]} ({route[2]})")
-
-    # Section 4: Inspections Réalisées
+    # Section 3: Inspections Réalisées
     st.header("Inspections Réalisées")
     cur.execute('SELECT COUNT(*) FROM Missions')
     total_missions = cur.fetchone()[0]
     st.write(f"Nombre total de missions réalisées: {total_missions}")
+
+    # Section 4: Analyse par Route
+    st.header("Analyse par Route")
+    cur.execute('SELECT * FROM Routes')
+    routes = cur.fetchall()
+    route_options = {route[0]: route[1] for route in routes}
+    selected_route_id = st.selectbox("Sélectionner une route", options=route_options.keys(), format_func=lambda x: route_options[x])
+
+    if selected_route_id:
+        # Récupérer les défauts pour la route sélectionnée
+        cur.execute('''
+            SELECT Defauts.type_defaut, Defauts.latitude, Defauts.longitude
+            FROM Defauts
+            JOIN Missions ON Defauts.mission_id = Missions.id
+            WHERE Missions.route_id = ?
+        ''', (selected_route_id,))
+        defauts_route = cur.fetchall()
+
+        if defauts_route:
+            st.write(f"### Défauts identifiés sur la route {route_options[selected_route_id]}:")
+            for defaut in defauts_route:
+                st.write(f"- **Type:** {defaut[0]}, **Latitude:** {defaut[1]}, **Longitude:** {defaut[2]}")
+        else:
+            st.write(f"Aucun défaut identifié sur la route {route_options[selected_route_id]}.")
 
     # Section 5: Génération de Rapports
     st.header("Générer des Rapports")
@@ -115,13 +130,6 @@ def dashboard():
     selected_date = st.date_input("Sélectionner une date")
     if st.button("Voir les inspections pour cette date"):
         st.write(f"Inspections pour {selected_date}: En cours de développement")
-
-    # Section 8: Options de Rapport
-    st.header("Options de Rapport")
-    if st.button("Voir statistiques par route"):
-        st.write("Statistiques par route: En cours de développement")
-    if st.button("Voir toutes les statistiques d’inspection"):
-        st.write("Toutes les statistiques d’inspection: En cours de développement")
 
     # Fermer la connexion
     conn.close()
