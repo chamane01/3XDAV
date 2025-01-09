@@ -15,13 +15,13 @@ def dashboard():
 
     # Connexion à la base de données
     conn = connect_to_db()
+    cur = conn.cursor()
 
     # Section 1: Carte Interactive des Routes
     st.header("Carte Interactive de Toutes les Routes")
     m = folium.Map(location=[7.5399, -5.5471], zoom_start=7)  # Centré sur la Côte d'Ivoire
 
     # Récupérer les défauts et les afficher sur la carte
-    cur = conn.cursor()
     cur.execute('SELECT * FROM Defauts')
     defauts = cur.fetchall()
     for defaut in defauts:
@@ -32,14 +32,51 @@ def dashboard():
         ).add_to(m)
     folium_static(m)
 
-    # Section 2: Statistiques des Défauts
-    st.header("Statistiques des Défauts")
-    selected_month = st.selectbox("Sélectionner un mois", ["Jan", "Fév", "Mar", "Avr"])
-    if selected_month:
+    # Section 2: Statistiques des Défauts par Mois
+    st.header("Statistiques des Défauts par Mois")
+
+    # Liste des mois de l'année
+    months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Jul", "Août", "Sep", "Oct", "Nov", "Déc"]
+    selected_month = st.selectbox("Sélectionner un mois", months)
+
+    # Récupérer les données pour le mois sélectionné
+    month_number = months.index(selected_month) + 1  # Convertir le mois en numéro
+    cur.execute('''
+        SELECT COUNT(Missions.id) AS nb_missions, 
+               SUM(CASE WHEN Defauts.type_defaut = "Fissure" THEN 1 ELSE 0 END) AS nb_fissures,
+               SUM(CASE WHEN Defauts.type_defaut = "Nid-de-poule" THEN 1 ELSE 0 END) AS nb_nids,
+               SUM(CASE WHEN Defauts.type_defaut = "Usure" THEN 1 ELSE 0 END) AS nb_usures
+        FROM Missions
+        LEFT JOIN Defauts ON Missions.id = Defauts.mission_id
+        WHERE strftime("%m", Missions.date) = ?
+    ''', (f"{month_number:02}",))  # Format MM
+
+    result = cur.fetchone()
+
+    if result:
+        nb_missions, nb_fissures, nb_nids, nb_usures = result
         st.write(f"Statistiques pour {selected_month}:")
-        st.write("- Fissures: En cours de développement")
-        st.write("- Nids-de-poule: En cours de développement")
-        st.write("- Usures: En cours de développement")
+        st.write(f"- Nombre de missions réalisées: {nb_missions}")
+        st.write(f"- Fissures: {nb_fissures}")
+        st.write(f"- Nids-de-poule: {nb_nids}")
+        st.write(f"- Usures: {nb_usures}")
+
+        # Afficher les détails des défauts si disponibles
+        if nb_fissures > 0 or nb_nids > 0 or nb_usures > 0:
+            st.write("### Détails des Défauts")
+            cur.execute('''
+                SELECT Defauts.type_defaut, Defauts.latitude, Defauts.longitude
+                FROM Defauts
+                JOIN Missions ON Defauts.mission_id = Missions.id
+                WHERE strftime("%m", Missions.date) = ?
+            ''', (f"{month_number:02}",))
+            defauts_details = cur.fetchall()
+            for defaut in defauts_details:
+                st.write(f"- **Type:** {defaut[0]}, **Latitude:** {defaut[1]}, **Longitude:** {defaut[2]}")
+        else:
+            st.write("Aucun défaut identifié pour ce mois.")
+    else:
+        st.write(f"Aucune donnée disponible pour {selected_month}.")
 
     # Section 3: Voir Toutes les Routes
     st.header("Voir Toutes les Routes")
@@ -52,7 +89,9 @@ def dashboard():
 
     # Section 4: Inspections Réalisées
     st.header("Inspections Réalisées")
-    st.write("Statistiques des 5 derniers mois: En cours de développement")
+    cur.execute('SELECT COUNT(*) FROM Missions')
+    total_missions = cur.fetchone()[0]
+    st.write(f"Nombre total de missions réalisées: {total_missions}")
 
     # Section 5: Génération de Rapports
     st.header("Générer des Rapports")
