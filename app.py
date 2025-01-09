@@ -15,13 +15,13 @@ def dashboard():
 
     # Connexion à la base de données
     conn = connect_to_db()
-    cur = conn.cursor()
 
     # Section 1: Carte Interactive des Routes
     st.header("Carte Interactive de Toutes les Routes")
     m = folium.Map(location=[7.5399, -5.5471], zoom_start=7)  # Centré sur la Côte d'Ivoire
 
     # Récupérer les défauts et les afficher sur la carte
+    cur = conn.cursor()
     cur.execute('SELECT * FROM Defauts')
     defauts = cur.fetchall()
     for defaut in defauts:
@@ -32,106 +32,27 @@ def dashboard():
         ).add_to(m)
     folium_static(m)
 
-    # Section 2: Statistiques des Défauts par Mois
-    st.header("Statistiques des Défauts par Mois")
-
-    # Liste des mois de l'année
-    months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Jul", "Août", "Sep", "Oct", "Nov", "Déc"]
-    selected_month = st.selectbox("Sélectionner un mois", months)
-
-    # Récupérer les données pour le mois sélectionné
-    month_number = months.index(selected_month) + 1  # Convertir le mois en numéro
-    cur.execute('''
-        SELECT COUNT(Missions.id) AS nb_missions, 
-               SUM(CASE WHEN Defauts.type_defaut = "Fissure" THEN 1 ELSE 0 END) AS nb_fissures,
-               SUM(CASE WHEN Defauts.type_defaut = "Nid-de-poule" THEN 1 ELSE 0 END) AS nb_nids,
-               SUM(CASE WHEN Defauts.type_defaut = "Usure" THEN 1 ELSE 0 END) AS nb_usures
-        FROM Missions
-        LEFT JOIN Defauts ON Missions.id = Defauts.mission_id
-        WHERE strftime("%m", Missions.date) = ?
-    ''', (f"{month_number:02}",))  # Format MM
-
-    result = cur.fetchone()
-
-    if result:
-        nb_missions, nb_fissures, nb_nids, nb_usures = result
-        # Gérer les valeurs None
-        nb_fissures = nb_fissures if nb_fissures is not None else 0
-        nb_nids = nb_nids if nb_nids is not None else 0
-        nb_usures = nb_usures if nb_usures is not None else 0
-
+    # Section 2: Statistiques des Défauts
+    st.header("Statistiques des Défauts")
+    selected_month = st.selectbox("Sélectionner un mois", ["Jan", "Fév", "Mar", "Avr"])
+    if selected_month:
         st.write(f"Statistiques pour {selected_month}:")
-        st.write(f"- Nombre de missions réalisées: {nb_missions}")
-        st.write(f"- Fissures: {nb_fissures}")
-        st.write(f"- Nids-de-poule: {nb_nids}")
-        st.write(f"- Usures: {nb_usures}")
+        st.write("- Fissures: En cours de développement")
+        st.write("- Nids-de-poule: En cours de développement")
+        st.write("- Usures: En cours de développement")
 
-        # Afficher les détails des défauts si disponibles
-        if nb_fissures > 0 or nb_nids > 0 or nb_usures > 0:
-            st.write("### Détails des Défauts")
-            cur.execute('''
-                SELECT Defauts.type_defaut, Defauts.latitude, Defauts.longitude
-                FROM Defauts
-                JOIN Missions ON Defauts.mission_id = Missions.id
-                WHERE strftime("%m", Missions.date) = ?
-            ''', (f"{month_number:02}",))
-            defauts_details = cur.fetchall()
-            for defaut in defauts_details:
-                st.write(f"- **Type:** {defaut[0]}, **Latitude:** {defaut[1]}, **Longitude:** {defaut[2]}")
-        else:
-            st.write("Aucun défaut identifié pour ce mois.")
-    else:
-        st.write(f"Aucune donnée disponible pour {selected_month}.")
+    # Section 3: Voir Toutes les Routes
+    st.header("Voir Toutes les Routes")
+    if st.button("Afficher toutes les routes"):
+        cur.execute('SELECT * FROM Routes')
+        routes = cur.fetchall()
+        st.write("Liste des routes:")
+        for route in routes:
+            st.write(f"- {route[1]} ({route[2]})")
 
-    # Section 3: Inspections Réalisées
+    # Section 4: Inspections Réalisées
     st.header("Inspections Réalisées")
-    cur.execute('SELECT COUNT(*) FROM Missions')
-    total_missions = cur.fetchone()[0]
-    st.write(f"Nombre total de missions réalisées: {total_missions}")
-
-    # Section 4: Analyse par Route
-    st.header("Analyse par Route")
-    cur.execute('SELECT * FROM Routes')
-    routes = cur.fetchall()
-    route_options = {route[0]: route[1] for route in routes}
-    selected_route_id = st.selectbox("Sélectionner une route", options=route_options.keys(), format_func=lambda x: route_options[x])
-
-    if selected_route_id:
-        # Récupérer les missions et les défauts pour la route sélectionnée
-        cur.execute('''
-            SELECT Missions.id, Missions.date, Defauts.type_defaut, Defauts.latitude, Defauts.longitude
-            FROM Missions
-            LEFT JOIN Defauts ON Missions.id = Defauts.mission_id
-            WHERE Missions.route_id = ?
-        ''', (selected_route_id,))
-        missions_defauts = cur.fetchall()
-
-        if missions_defauts:
-            st.write(f"### Missions et Défauts sur la route {route_options[selected_route_id]}:")
-            missions_dict = {}
-            for mission in missions_defauts:
-                mission_id, mission_date, type_defaut, latitude, longitude = mission
-                if mission_id not in missions_dict:
-                    missions_dict[mission_id] = {
-                        "date": mission_date,
-                        "defauts": []
-                    }
-                if type_defaut:  # Si un défaut est associé à la mission
-                    missions_dict[mission_id]["defauts"].append({
-                        "type": type_defaut,
-                        "latitude": latitude,
-                        "longitude": longitude
-                    })
-
-            for mission_id, mission_data in missions_dict.items():
-                st.write(f"**Mission du {mission_data['date']}**")
-                if mission_data["defauts"]:
-                    for defaut in mission_data["defauts"]:
-                        st.write(f"- **Type:** {defaut['type']}, **Latitude:** {defaut['latitude']}, **Longitude:** {defaut['longitude']}")
-                else:
-                    st.write("Aucun défaut identifié pour cette mission.")
-        else:
-            st.write(f"Aucune mission ou défaut identifié sur la route {route_options[selected_route_id]}.")
+    st.write("Statistiques des 5 derniers mois: En cours de développement")
 
     # Section 5: Génération de Rapports
     st.header("Générer des Rapports")
@@ -150,6 +71,30 @@ def dashboard():
     selected_date = st.date_input("Sélectionner une date")
     if st.button("Voir les inspections pour cette date"):
         st.write(f"Inspections pour {selected_date}: En cours de développement")
+
+    # Section 8: Analyse par Route
+    st.header("Analyse par Route")
+    cur.execute('SELECT id, nom FROM Routes')
+    routes = cur.fetchall()
+    route_options = {route[1]: route[0] for route in routes}
+    selected_route_name = st.selectbox("Sélectionner une route", list(route_options.keys()))
+    
+    if st.button("Analyser la route sélectionnée"):
+        selected_route_id = route_options[selected_route_name]
+        cur.execute('''
+            SELECT Defauts.type_defaut, Defauts.latitude, Defauts.longitude 
+            FROM Defauts 
+            JOIN Missions ON Defauts.mission_id = Missions.id 
+            WHERE Missions.route_id = ?
+        ''', (selected_route_id,))
+        defauts_route = cur.fetchall()
+        
+        if defauts_route:
+            st.write(f"Résultats de l'analyse pour la route {selected_route_name}:")
+            for defaut in defauts_route:
+                st.write(f"- Type de défaut: {defaut[0]}, Latitude: {defaut[1]}, Longitude: {defaut[2]}")
+        else:
+            st.write("Aucun défaut trouvé pour cette route.")
 
     # Fermer la connexion
     conn.close()
