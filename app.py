@@ -55,6 +55,11 @@ def dashboard():
 
     if result:
         nb_missions, nb_fissures, nb_nids, nb_usures = result
+        # Gérer les valeurs None
+        nb_fissures = nb_fissures if nb_fissures is not None else 0
+        nb_nids = nb_nids if nb_nids is not None else 0
+        nb_usures = nb_usures if nb_usures is not None else 0
+
         st.write(f"Statistiques pour {selected_month}:")
         st.write(f"- Nombre de missions réalisées: {nb_missions}")
         st.write(f"- Fissures: {nb_fissures}")
