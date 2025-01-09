@@ -43,7 +43,7 @@ def dashboard():
     # Récupérer les données pour le mois sélectionné
     month_number = months.index(selected_month) + 1  # Convertir le mois en numéro
     cur.execute('''
-        SELECT COUNT(Missions.id) AS nb_missions, 
+        SELECT COUNT(DISTINCT Missions.id) AS nb_missions, 
                SUM(CASE WHEN Defauts.type_defaut = "Fissure" THEN 1 ELSE 0 END) AS nb_fissures,
                SUM(CASE WHEN Defauts.type_defaut = "Nid-de-poule" THEN 1 ELSE 0 END) AS nb_nids,
                SUM(CASE WHEN Defauts.type_defaut = "Usure" THEN 1 ELSE 0 END) AS nb_usures
@@ -100,47 +100,51 @@ def dashboard():
 
     # Section 4: Analyse par Route
     st.header("Analyse par Route")
-    cur.execute('SELECT * FROM Routes')
-    routes = cur.fetchall()
-    route_options = {route[0]: route[1] for route in routes}
-    selected_route_id = st.selectbox("Sélectionner une route", options=route_options.keys(), format_func=lambda x: route_options[x])
+    if st.button("Analyser par Route"):
+        conn = connect_to_db()
+        cur = conn.cursor()
+        cur.execute('SELECT * FROM Routes')
+        routes = cur.fetchall()
+        route_options = {route[0]: route[1] for route in routes}
+        selected_route_id = st.selectbox("Sélectionner une route", options=route_options.keys(), format_func=lambda x: route_options[x])
 
-    if selected_route_id:
-        # Récupérer les missions et les défauts pour la route sélectionnée
-        cur.execute('''
-            SELECT Missions.id, Missions.date, Defauts.type_defaut, Defauts.latitude, Defauts.longitude
-            FROM Missions
-            LEFT JOIN Defauts ON Missions.id = Defauts.mission_id
-            WHERE Missions.route_id = ?
-        ''', (selected_route_id,))
-        missions_defauts = cur.fetchall()
+        if selected_route_id:
+            # Récupérer les missions et les défauts pour la route sélectionnée
+            cur.execute('''
+                SELECT Missions.id, Missions.date, Defauts.type_defaut, Defauts.latitude, Defauts.longitude
+                FROM Missions
+                LEFT JOIN Defauts ON Missions.id = Defauts.mission_id
+                WHERE Missions.route_id = ?
+            ''', (selected_route_id,))
+            missions_defauts = cur.fetchall()
 
-        if missions_defauts:
-            st.write(f"### Missions et Défauts sur la route {route_options[selected_route_id]}:")
-            missions_dict = {}
-            for mission in missions_defauts:
-                mission_id, mission_date, type_defaut, latitude, longitude = mission
-                if mission_id not in missions_dict:
-                    missions_dict[mission_id] = {
-                        "date": mission_date,
-                        "defauts": []
-                    }
-                if type_defaut:  # Si un défaut est associé à la mission
-                    missions_dict[mission_id]["defauts"].append({
-                        "type": type_defaut,
-                        "latitude": latitude,
-                        "longitude": longitude
-                    })
+            if missions_defauts:
+                st.write(f"### Missions et Défauts sur la route {route_options[selected_route_id]}:")
+                missions_dict = {}
+                for mission in missions_defauts:
+                    mission_id, mission_date, type_defaut, latitude, longitude = mission
+                    if mission_id not in missions_dict:
+                        missions_dict[mission_id] = {
+                            "date": mission_date,
+                            "defauts": []
+                        }
+                    if type_defaut:  # Si un défaut est associé à la mission
+                        missions_dict[mission_id]["defauts"].append({
+                            "type": type_defaut,
+                            "latitude": latitude,
+                            "longitude": longitude
+                        })
 
-            for mission_id, mission_data in missions_dict.items():
-                st.write(f"**Mission du {mission_data['date']}**")
-                if mission_data["defauts"]:
-                    for defaut in mission_data["defauts"]:
-                        st.write(f"- **Type:** {defaut['type']}, **Latitude:** {defaut['latitude']}, **Longitude:** {defaut['longitude']}")
-                else:
-                    st.write("Aucun défaut identifié pour cette mission.")
-        else:
-            st.write(f"Aucune mission ou défaut identifié sur la route {route_options[selected_route_id]}.")
+                for mission_id, mission_data in missions_dict.items():
+                    st.write(f"**Mission du {mission_data['date']}**")
+                    if mission_data["defauts"]:
+                        for defaut in mission_data["defauts"]:
+                            st.write(f"- **Type:** {defaut['type']}, **Latitude:** {defaut['latitude']}, **Longitude:** {defaut['longitude']}")
+                    else:
+                        st.write("Aucun défaut identifié pour cette mission.")
+            else:
+                st.write(f"Aucune mission ou défaut identifié sur la route {route_options[selected_route_id]}.")
+        conn.close()
 
     # Section 5: Génération de Rapports
     st.header("Générer des Rapports")
@@ -173,6 +177,28 @@ def add_mission():
             st.write("Analyse en cours...")
             # Ici, vous pouvez ajouter le code pour l'analyse IA
             st.write("Résultats de l'analyse: En cours de développement")
+
+    # Bouton pour afficher l'historique des missions
+    if st.button("Historique des Missions"):
+        conn = connect_to_db()
+        cur = conn.cursor()
+        cur.execute('''
+            SELECT Missions.id, Missions.date, Routes.nom, Missions.images
+            FROM Missions
+            JOIN Routes ON Missions.route_id = Routes.id
+        ''')
+        missions = cur.fetchall()
+        if missions:
+            st.write("### Historique des Missions")
+            for mission in missions:
+                mission_id, mission_date, route_nom, images = mission
+                st.write(f"**Mission ID:** {mission_id}")
+                st.write(f"- **Date:** {mission_date}")
+                st.write(f"- **Route:** {route_nom}")
+                st.write(f"- **Images:** {images}")
+        else:
+            st.write("Aucune mission trouvée dans la base de données.")
+        conn.close()
 
 # Page d'Accueil
 st.sidebar.title("Navigation")
