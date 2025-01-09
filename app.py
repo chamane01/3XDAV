@@ -61,7 +61,10 @@ def dashboard():
         st.write("Toutes les statistiques d’inspection: En cours de développement")
 
     # Pied de page
-    st.sidebar.image("logo_gouvernement.png", width=100)
+    try:
+        st.sidebar.image("logo_gouvernement.png", width=100)
+    except Exception as e:
+        st.sidebar.write("Logo non trouvé")
     st.sidebar.write("Gouvernement")
     st.sidebar.write("Agéroute")
 
