@@ -24,3 +24,4 @@ opencv-python
 datetime
 pyogrio
 fiona
+sqlite3
