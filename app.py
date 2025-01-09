@@ -1,51 +1,69 @@
 import streamlit as st
-import psycopg2
-import pandas as pd
+import sqlite3
 from datetime import datetime
 
-# Fonction pour se connecter à la base de données PostgreSQL
+# Fonction pour se connecter à la base de données SQLite
 def connect_to_db():
-    conn = psycopg2.connect(
-        dbname="votre_nom_db",
-        user="votre_utilisateur",
-        password="votre_mot_de_passe",
-        host="votre_host",
-        port="votre_port"
-    )
+    conn = sqlite3.connect('ageroute.db')
     return conn
 
-# Fonction pour ajouter une mission dans la base de données
-def add_mission_to_db(conn, date, images):
+# Fonction pour afficher toutes les missions
+def show_missions(conn):
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM Missions')
+    missions = cur.fetchall()
+    if missions:
+        st.write("### Liste des Missions")
+        for mission in missions:
+            st.write(f"**ID:** {mission[0]}, **Date:** {mission[1]}, **Images:** {mission[2]}")
+    else:
+        st.write("Aucune mission trouvée.")
+
+# Fonction pour afficher tous les défauts
+def show_defauts(conn):
+    cur = conn.cursor()
+    cur.execute('SELECT * FROM Defauts')
+    defauts = cur.fetchall()
+    if defauts:
+        st.write("### Liste des Défauts")
+        for defaut in defauts:
+            st.write(f"**ID:** {defaut[0]}, **Mission ID:** {defaut[1]}, **Type:** {defaut[2]}, **Latitude:** {defaut[3]}, **Longitude:** {defaut[4]}")
+    else:
+        st.write("Aucun défaut trouvé.")
+
+# Fonction pour ajouter une mission
+def add_mission(date, images):
+    conn = connect_to_db()
     cur = conn.cursor()
     cur.execute('''
         INSERT INTO Missions (date, images)
-        VALUES (%s, %s)
-        RETURNING id
+        VALUES (?, ?)
     ''', (date, images))
-    mission_id = cur.fetchone()[0]
     conn.commit()
-    return mission_id
+    conn.close()
+    st.success("Mission ajoutée avec succès !")
 
-# Fonction pour ajouter un défaut dans la base de données
-def add_defaut_to_db(conn, mission_id, type_defaut, latitude, longitude):
+# Fonction pour supprimer une mission
+def delete_mission(mission_id):
+    conn = connect_to_db()
+    cur = conn.cursor()
+    cur.execute('DELETE FROM Missions WHERE id = ?', (mission_id,))
+    conn.commit()
+    conn.close()
+    st.success("Mission supprimée avec succès !")
+
+# Fonction pour mettre à jour une mission
+def update_mission(mission_id, date, images):
+    conn = connect_to_db()
     cur = conn.cursor()
     cur.execute('''
-        INSERT INTO Defauts (mission_id, type_defaut, latitude, longitude)
-        VALUES (%s, %s, %s, %s)
-    ''', (mission_id, type_defaut, latitude, longitude))
+        UPDATE Missions
+        SET date = ?, images = ?
+        WHERE id = ?
+    ''', (date, images, mission_id))
     conn.commit()
-
-# Fonction pour récupérer les missions
-def get_missions(conn):
-    cur = conn.cursor()
-    cur.execute('SELECT * FROM Missions')
-    return cur.fetchall()
-
-# Fonction pour récupérer les défauts d'une mission
-def get_defauts(conn, mission_id):
-    cur = conn.cursor()
-    cur.execute('SELECT * FROM Defauts WHERE mission_id = %s', (mission_id,))
-    return cur.fetchall()
+    conn.close()
+    st.success("Mission mise à jour avec succès !")
 
 # Interface Streamlit
 def main():
@@ -55,42 +73,36 @@ def main():
     conn = connect_to_db()
 
     # Navigation
-    choice = st.sidebar.radio("Choisir une option", ["Tableau de Bord", "Ajouter une Mission"])
+    st.sidebar.title("Navigation")
+    choice = st.sidebar.radio("Choisir une option", ["Voir les Missions", "Ajouter une Mission", "Supprimer une Mission", "Mettre à Jour une Mission"])
 
-    if choice == "Tableau de Bord":
-        st.header("Tableau de Bord")
-        missions = get_missions(conn)
-        st.write(f"Nombre total de missions: {len(missions)}")
-
-        # Afficher les défauts sur une carte
-        st.header("Carte Interactive des Défauts")
-        defauts = conn.cursor().execute('SELECT * FROM Defauts').fetchall()
-        if defauts:
-            m = folium.Map(location=[7.5399, -5.5471], zoom_start=7)
-            for defaut in defauts:
-                folium.Marker(
-                    location=[defaut[3], defaut[4]],
-                    popup=f"Défaut: {defaut[2]}",
-                    icon=folium.Icon(color='red')
-                ).add_to(m)
-            folium_static(m)
-        else:
-            st.write("Aucun défaut détecté.")
+    if choice == "Voir les Missions":
+        st.header("Voir les Missions et Défauts")
+        show_missions(conn)
+        show_defauts(conn)
 
     elif choice == "Ajouter une Mission":
         st.header("Ajouter une Mission")
-        uploaded_files = st.file_uploader("Charger les images de la mission drone", type=["jpg", "png"], accept_multiple_files=True)
-        if uploaded_files:
-            st.write(f"{len(uploaded_files)} images chargées.")
-            if st.button("Lancer l'analyse par IA"):
-                # Simuler l'analyse IA
-                mission_id = add_mission_to_db(conn, datetime.now(), str(uploaded_files))
-                # Ajouter des défauts fictifs
-                add_defaut_to_db(conn, mission_id, "Fissure", 7.5399, -5.5471)
-                add_defaut_to_db(conn, mission_id, "Nid-de-poule", 7.5499, -5.5571)
-                st.success("Mission ajoutée et analyse terminée !")
+        date = st.date_input("Date de la mission")
+        images = st.text_input("Images (séparées par des virgules)")
+        if st.button("Ajouter la mission"):
+            add_mission(date, images)
 
-    # Fermer la connexion à la base de données
+    elif choice == "Supprimer une Mission":
+        st.header("Supprimer une Mission")
+        mission_id = st.number_input("ID de la mission à supprimer", min_value=1)
+        if st.button("Supprimer la mission"):
+            delete_mission(mission_id)
+
+    elif choice == "Mettre à Jour une Mission":
+        st.header("Mettre à Jour une Mission")
+        mission_id = st.number_input("ID de la mission à mettre à jour", min_value=1)
+        date = st.date_input("Nouvelle date de la mission")
+        images = st.text_input("Nouvelles images (séparées par des virgules)")
+        if st.button("Mettre à jour la mission"):
+            update_mission(mission_id, date, images)
+
+    # Fermer la connexion
     conn.close()
 
 if __name__ == "__main__":
