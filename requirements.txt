@@ -19,7 +19,6 @@ osmnx
 contextily
 pyproj # Pour la conversion des coordonnées
 ezdxf
-psycopg2
 opencv-python
 datetime
 pyogrio
