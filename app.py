@@ -23,11 +23,15 @@ def dashboard():
     m = folium.Map(location=[7.5399, -5.5471], zoom_start=7)  # Centré sur la Côte d'Ivoire
 
     # Récupérer les défauts et les afficher sur la carte
-    cur.execute('SELECT * FROM Defauts')
+    cur.execute('''
+        SELECT Defauts.latitude, Defauts.longitude, TypesDefauts.nom
+        FROM Defauts
+        JOIN TypesDefauts ON Defauts.type_defaut_id = TypesDefauts.id
+    ''')
     defauts = cur.fetchall()
     for defaut in defauts:
         folium.Marker(
-            location=[defaut[3], defaut[4]],
+            location=[defaut[0], defaut[1]],
             popup=f"Défaut: {defaut[2]}",
             icon=folium.Icon(color='red')
         ).add_to(m)
@@ -44,11 +48,12 @@ def dashboard():
     month_number = months.index(selected_month) + 1  # Convertir le mois en numéro
     cur.execute('''
         SELECT COUNT(DISTINCT Missions.id) AS nb_missions, 
-               SUM(CASE WHEN Defauts.type_defaut = "Fissure" THEN 1 ELSE 0 END) AS nb_fissures,
-               SUM(CASE WHEN Defauts.type_defaut = "Nid-de-poule" THEN 1 ELSE 0 END) AS nb_nids,
-               SUM(CASE WHEN Defauts.type_defaut = "Usure" THEN 1 ELSE 0 END) AS nb_usures
+               SUM(CASE WHEN TypesDefauts.nom = "Fissure" THEN 1 ELSE 0 END) AS nb_fissures,
+               SUM(CASE WHEN TypesDefauts.nom = "Nid-de-poule" THEN 1 ELSE 0 END) AS nb_nids,
+               SUM(CASE WHEN TypesDefauts.nom = "Usure" THEN 1 ELSE 0 END) AS nb_usures
         FROM Missions
         LEFT JOIN Defauts ON Missions.id = Defauts.mission_id
+        LEFT JOIN TypesDefauts ON Defauts.type_defaut_id = TypesDefauts.id
         WHERE strftime("%m", Missions.date) = ?
     ''', (f"{month_number:02}",))  # Format MM
 
@@ -79,8 +84,9 @@ def dashboard():
         if nb_fissures > 0 or nb_nids > 0 or nb_usures > 0:
             st.write("### Détails des Défauts")
             cur.execute('''
-                SELECT Defauts.type_defaut, Defauts.latitude, Defauts.longitude
+                SELECT TypesDefauts.nom, Defauts.latitude, Defauts.longitude
                 FROM Defauts
+                JOIN TypesDefauts ON Defauts.type_defaut_id = TypesDefauts.id
                 JOIN Missions ON Defauts.mission_id = Missions.id
                 WHERE strftime("%m", Missions.date) = ?
             ''', (f"{month_number:02}",))
@@ -111,9 +117,10 @@ def dashboard():
         if selected_route_id:
             # Récupérer les missions et les défauts pour la route sélectionnée
             cur.execute('''
-                SELECT Missions.id, Missions.date, Defauts.type_defaut, Defauts.latitude, Defauts.longitude
+                SELECT Missions.id, Missions.date, TypesDefauts.nom, Defauts.latitude, Defauts.longitude
                 FROM Missions
                 LEFT JOIN Defauts ON Missions.id = Defauts.mission_id
+                LEFT JOIN TypesDefauts ON Defauts.type_defaut_id = TypesDefauts.id
                 WHERE Missions.route_id = ?
             ''', (selected_route_id,))
             missions_defauts = cur.fetchall()
@@ -154,9 +161,19 @@ def dashboard():
 
     # Section 6: Alertes
     st.header("Alertes")
-    st.write("Nid-de-poule dangereux détecté sur l’Autoroute du Nord (Section Yamoussoukro-Bouaké)")
-    st.write("Fissures multiples sur le Pont HKB à Abidjan")
-    st.write("Usures importantes sur la Nationale A3 (Abidjan-Adzopé)")
+    cur.execute('''
+        SELECT Alertes.message, Alertes.date, Routes.nom
+        FROM Alertes
+        JOIN Defauts ON Alertes.defaut_id = Defauts.id
+        JOIN Missions ON Defauts.mission_id = Missions.id
+        JOIN Routes ON Missions.route_id = Routes.id
+    ''')
+    alertes = cur.fetchall()
+    if alertes:
+        for alerte in alertes:
+            st.write(f"- **{alerte[0]}** sur la route **{alerte[2]}** (Date: {alerte[1]})")
+    else:
+        st.write("Aucune alerte active.")
 
     # Section 7: Inspections par Date
     st.header("Inspections par Date")
