@@ -2,6 +2,7 @@ import streamlit as st
 from streamlit_folium import st_folium
 import folium
 from folium.plugins import Draw
+from folium import LayerControl
 
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
@@ -13,7 +14,7 @@ st.title("Carte Dynamique avec Gestion Avancée des Couches")
 # Description
 st.markdown("""
 Créez des entités géographiques (points, lignes, polygones) en les dessinant sur la carte et ajoutez-les à des couches spécifiques. 
-Vous pouvez également activer ou désactiver des couches grâce au gestionnaire de couches en haut à droite de la carte.
+Vous pouvez également activer ou désactiver des couches grâce au gestionnaire de couches.
 """)
 
 # Sélection de la couche active pour ajouter les nouvelles entités
