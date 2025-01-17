@@ -2,7 +2,7 @@ import streamlit as st
 from streamlit_folium import st_folium
 import folium
 from folium.plugins import Draw, LayerControl
-
+print("Folium et ses plugins fonctionnent correctement.")
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
     st.session_state["layers"] = {"Plantations": [], "Polygonales": [], "Points": []}
