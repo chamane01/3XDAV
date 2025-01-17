@@ -24,3 +24,4 @@ datetime
 pyogrio
 fiona
 plotly
+folium==0.14.0
