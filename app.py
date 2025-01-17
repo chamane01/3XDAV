@@ -29,7 +29,7 @@ m = folium.Map(location=[5.5, -4.0], zoom_start=8)
 # Ajout des couches existantes à la carte
 layer_groups = {}
 for layer, features in st.session_state["layers"].items():
-    layer_groups[layer] = folium.FeatureGroup(name=layer, show=True)
+    layer_groups[layer] = folium.FeatureGroup(name=layer, show=True)  # Crée un groupe de couches
     for feature in features:
         feature_type = feature["geometry"]["type"]
         coordinates = feature["geometry"]["coordinates"]
@@ -59,8 +59,8 @@ draw = Draw(
 )
 draw.add_to(m)
 
-# Ajout du gestionnaire de couches
-LayerControl().add_to(m)
+# Ajout du gestionnaire de couches (en haut à droite de la carte)
+folium.LayerControl(position="topright").add_to(m)
 
 # Affichage interactif de la carte
 output = st_folium(m, width=800, height=500, returned_objects=["last_active_drawing", "all_drawings"])
