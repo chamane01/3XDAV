@@ -3,6 +3,7 @@ from streamlit_folium import st_folium
 import folium
 from folium.plugins import Draw
 from folium import LayerControl
+import json
 
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
@@ -61,6 +62,24 @@ draw.add_to(m)
 
 # Ajout du gestionnaire de couches (en haut à droite de la carte)
 folium.LayerControl(position="topright").add_to(m)
+
+# Section pour téléverser des fichiers GeoJSON
+st.header("Ajouter des couches GeoJSON")
+uploaded_geojson = st.file_uploader("Téléverser un fichier GeoJSON", type=["geojson"])
+
+if uploaded_geojson:
+    try:
+        geojson_data = json.load(uploaded_geojson)
+        geojson_layer_name = st.text_input("Nommez cette couche GeoJSON", value="Nouvelle Couche GeoJSON")
+
+        if st.button("Ajouter la couche GeoJSON à la carte"):
+            if geojson_layer_name not in st.session_state["layers"]:
+                st.session_state["layers"][geojson_layer_name] = []
+            st.session_state["layers"][geojson_layer_name].append(geojson_data)
+            st.success(f"Couche GeoJSON '{geojson_layer_name}' ajoutée à la carte.")
+            st.experimental_rerun()  # Recharger la carte pour afficher la nouvelle couche
+    except Exception as e:
+        st.error(f"Erreur lors du chargement du GeoJSON : {e}")
 
 # Affichage interactif de la carte
 output = st_folium(m, width=800, height=500, returned_objects=["last_active_drawing", "all_drawings"])
