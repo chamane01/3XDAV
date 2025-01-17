@@ -21,7 +21,7 @@ Créez des entités géographiques (points, lignes, polygones) en les dessinant 
 Vous pouvez également activer ou désactiver des couches grâce au gestionnaire de couches.
 """)
 
-# Première sidebar (permanente)
+# Sidebar pour la gestion des couches
 with st.sidebar:
     st.header("Gestion des Couches")
 
@@ -82,18 +82,6 @@ with st.sidebar:
             st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
     else:
         st.write("Aucune entité dans cette couche pour le moment.")
-
-# Deuxième Sidebar (calcul des volumes) avec affichage conditionnel
-if st.button("Calculer des volumes"):
-    with st.sidebar:
-        st.header("Calcul des Volumes")
-
-        # Ajoutez ici des éléments pour le calcul des volumes, par exemple:
-        volume_data = st.text_input("Entrez les dimensions pour calculer le volume")
-        if st.button("Calculer"):
-            st.write(f"Volume calculé pour : {volume_data}")
-        else:
-            st.write("Entrez des données pour effectuer le calcul.")
 
 # Carte de base
 m = folium.Map(location=[5.5, -4.0], zoom_start=8)
