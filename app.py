@@ -1,13 +1,8 @@
 import streamlit as st
 from streamlit_folium import st_folium
 import folium
-
-# Vérification de l'importation des plugins
-try:
-    from folium.plugins import Draw, LayerControl
-except ImportError as e:
-    st.error(f"Erreur d'importation : {e}. Assurez-vous que 'folium' est correctement installé.")
-    st.stop()
+from folium.plugins import Draw
+from folium import LayerControl  # Correction ici
 
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
@@ -65,7 +60,7 @@ draw = Draw(
 draw.add_to(m)
 
 # Ajout du gestionnaire de couches
-LayerControl().add_to(m)
+LayerControl().add_to(m)  # Utilisation de folium.LayerControl
 
 # Affichage interactif de la carte
 output = st_folium(m, width=800, height=500, returned_objects=["last_active_drawing", "all_drawings"])
