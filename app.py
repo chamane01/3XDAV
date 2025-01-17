@@ -7,8 +7,9 @@ from folium import LayerControl
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
     st.session_state["layers"] = {"Routes": [], "Bâtiments": [], "Polygonale": []}
-if "refresh_flag" not in st.session_state:
-    st.session_state["refresh_flag"] = False
+
+if "new_features" not in st.session_state:
+    st.session_state["new_features"] = []
 
 # Titre de l'application
 st.title("Carte Dynamique avec Gestion Avancée des Couches")
@@ -36,13 +37,6 @@ layer_name = st.selectbox(
     list(st.session_state["layers"].keys())
 )
 
-# Gestionnaire de styles
-styles = {
-    "Routes": {"color": "red"},
-    "Bâtiments": {"color": "blue"},
-    "Polygonale": {"color": "green"},
-}
-
 # Carte de base
 m = folium.Map(location=[5.5, -4.0], zoom_start=8)
 
@@ -50,20 +44,25 @@ m = folium.Map(location=[5.5, -4.0], zoom_start=8)
 layer_groups = {}
 for layer, features in st.session_state["layers"].items():
     layer_groups[layer] = folium.FeatureGroup(name=layer, show=True)
-    style = styles.get(layer, {"color": "black"})
     for feature in features:
         feature_type = feature["geometry"]["type"]
         coordinates = feature["geometry"]["coordinates"]
-        popup = feature.get("properties", {}).get("name", f"{layer} - Entité")
+        popup = folium.Popup(
+            f"""
+            Nom : {feature.get("properties", {}).get("name", "Entité")}
+            """,
+            max_width=250
+        )
 
         if feature_type == "Point":
             lat, lon = coordinates[1], coordinates[0]
-            folium.Marker(location=[lat, lon], popup=popup, icon=folium.Icon(color=style["color"])).add_to(layer_groups[layer])
+            folium.Marker(location=[lat, lon], popup=popup).add_to(layer_groups[layer])
         elif feature_type == "LineString":
-            folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color=style["color"], popup=popup).add_to(layer_groups[layer])
+            folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color="blue", popup=popup).add_to(layer_groups[layer])
         elif feature_type == "Polygon":
-            folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color=style["color"], fill=True, popup=popup).add_to(layer_groups[layer])
+            folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True, popup=popup).add_to(layer_groups[layer])
 
+    # Ajout du groupe à la carte
     layer_groups[layer].add_to(m)
 
 # Gestionnaire de dessin
@@ -89,37 +88,30 @@ output = st_folium(m, width=800, height=600, returned_objects=["last_active_draw
 # Gestion des nouveaux dessins
 if output and "last_active_drawing" in output and output["last_active_drawing"]:
     new_feature = output["last_active_drawing"]
-    if new_feature not in st.session_state["layers"][layer_name]:  # Évite les doublons
-        st.session_state["layers"][layer_name].append(new_feature)
-        st.success("Nouvelle entité ajoutée.")
+    # Éviter les doublons en vérifiant si l'entité existe déjà
+    if new_feature not in st.session_state["new_features"]:
+        st.session_state["new_features"].append(new_feature)
+        st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
 
-# Rafraîchissement manuel
-st.header("Rafraîchissement manuel")
-if st.button("Rafraîchir les listes et cartes"):
-    st.session_state["refresh_flag"] = not st.session_state["refresh_flag"]
-    st.experimental_rerun()
+# Bouton pour enregistrer les nouvelles entités
+if st.button("Enregistrer les entités") and st.session_state["new_features"]:
+    st.session_state["layers"][layer_name].extend(st.session_state["new_features"])
+    st.session_state["new_features"] = []  # Réinitialisation des nouvelles entités
+    st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
 
-# Gestion des entités
+# Gestion des entités avec édition des noms
 st.header("Gestion des entités dans les couches")
 selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()))
 if st.session_state["layers"][selected_layer]:
-    entity_idx = st.selectbox(
-        "Sélectionnez une entité à gérer",
-        range(len(st.session_state["layers"][selected_layer])),
-        format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}"
-    )
-    selected_entity = st.session_state["layers"][selected_layer][entity_idx]
-    current_name = selected_entity.get("properties", {}).get("name", "")
-    new_name = st.text_input("Nom de l'entité", current_name)
+    for idx, entity in enumerate(st.session_state["layers"][selected_layer]):
+        name = entity.get("properties", {}).get("name", f"Entité {idx + 1}")
+        st.write(f"Entité {idx + 1} : {name}")
+        new_name = st.text_input(f"Modifier le nom de l'entité {idx + 1}", value=name, key=f"name_{selected_layer}_{idx}")
 
-    if st.button("Modifier le nom", key=f"edit_{entity_idx}"):
-        if "properties" not in selected_entity:
-            selected_entity["properties"] = {}
-        selected_entity["properties"]["name"] = new_name
-        st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
-
-    if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
-        st.session_state["layers"][selected_layer].pop(entity_idx)
-        st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
+        if st.button(f"Appliquer modification {idx + 1}", key=f"apply_{selected_layer}_{idx}"):
+            if "properties" not in entity:
+                entity["properties"] = {}
+            entity["properties"]["name"] = new_name
+            st.success(f"Le nom de l'entité {idx + 1} a été mis à jour.")
 else:
     st.write("Aucune entité dans cette couche pour le moment.")
