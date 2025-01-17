@@ -7,13 +7,11 @@ from folium import LayerControl
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
     st.session_state["layers"] = {"Routes": [], "Bâtiments": [], "Polygonale": []}
-
-# Initialisation des nouvelles entités temporairement dessinées
 if "new_features" not in st.session_state:
     st.session_state["new_features"] = []
 
 # Titre de l'application
-st.title("Carte Dynamique avec Mise à Jour Automatique")
+st.title("Carte Dynamique avec Gestion Avancée des Couches")
 
 # Description
 st.markdown("""
@@ -39,62 +37,54 @@ layer_name = st.selectbox(
 )
 
 # Carte de base
-def render_map():
-    m = folium.Map(location=[5.5, -4.0], zoom_start=8)
+m = folium.Map(location=[5.5, -4.0], zoom_start=8)
 
-    # Ajout des couches existantes à la carte
-    for layer, features in st.session_state["layers"].items():
-        layer_group = folium.FeatureGroup(name=layer, show=True)
-        for feature in features:
-            feature_type = feature["geometry"]["type"]
-            coordinates = feature["geometry"]["coordinates"]
-            popup = feature.get("properties", {}).get("name", f"{layer} - Entité")
+# Ajout des couches existantes à la carte
+layer_groups = {}
+for layer, features in st.session_state["layers"].items():
+    layer_groups[layer] = folium.FeatureGroup(name=layer, show=True)
+    for feature in features:
+        feature_type = feature["geometry"]["type"]
+        coordinates = feature["geometry"]["coordinates"]
+        popup = feature.get("properties", {}).get("name", f"{layer} - Entité")
 
-            if feature_type == "Point":
-                lat, lon = coordinates[1], coordinates[0]
-                folium.Marker(location=[lat, lon], popup=popup).add_to(layer_group)
-            elif feature_type == "LineString":
-                folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color="blue", popup=popup).add_to(layer_group)
-            elif feature_type == "Polygon":
-                folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True, popup=popup).add_to(layer_group)
+        if feature_type == "Point":
+            lat, lon = coordinates[1], coordinates[0]
+            folium.Marker(location=[lat, lon], popup=popup).add_to(layer_groups[layer])
+        elif feature_type == "LineString":
+            folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color="blue", popup=popup).add_to(layer_groups[layer])
+        elif feature_type == "Polygon":
+            folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True, popup=popup).add_to(layer_groups[layer])
 
-        layer_group.add_to(m)
+    # Ajout du groupe à la carte
+    layer_groups[layer].add_to(m)
 
-    # Gestionnaire de dessin
-    draw = Draw(
-        draw_options={
-            "polyline": True,
-            "polygon": True,
-            "circle": False,
-            "rectangle": True,
-            "marker": True,
-            "circlemarker": False,
-        },
-        edit_options={"edit": True, "remove": True},
-    )
-    draw.add_to(m)
+# Gestionnaire de dessin
+draw = Draw(
+    draw_options={
+        "polyline": True,
+        "polygon": True,
+        "circle": False,
+        "rectangle": True,
+        "marker": True,
+        "circlemarker": False,
+    },
+    edit_options={"edit": True, "remove": True},
+)
+draw.add_to(m)
 
-    # Ajout du gestionnaire de couches en mode plié
-    LayerControl(position="topleft", collapsed=True).add_to(m)
-
-    return m
+# Ajout du gestionnaire de couches en mode plié
+LayerControl(position="topleft", collapsed=True).add_to(m)
 
 # Affichage interactif de la carte
-map_display = st_folium(render_map(), width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
+output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
 
 # Gestion des nouveaux dessins
-if map_display and "last_active_drawing" in map_display and map_display["last_active_drawing"]:
-    new_feature = map_display["last_active_drawing"]
-    # Ajouter l'entité temporairement si elle n'existe pas déjà
+if output and "last_active_drawing" in output and output["last_active_drawing"]:
+    new_feature = output["last_active_drawing"]
     if new_feature not in st.session_state["new_features"]:
         st.session_state["new_features"].append(new_feature)
-        st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
-
-# Affichage des entités temporairement dessinées
-if st.session_state["new_features"]:
-    st.write(f"**Entités dessinées temporairement ({len(st.session_state['new_features'])}) :**")
-    for idx, feature in enumerate(st.session_state["new_features"]):
-        st.write(f"- Entité {idx + 1}: {feature['geometry']['type']}")
+    st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
 
 # Bouton pour enregistrer les nouvelles entités dans la couche active
 if st.button("Enregistrer les entités"):
@@ -103,7 +93,7 @@ if st.button("Enregistrer les entités"):
         if feature not in current_layer:
             current_layer.append(feature)
     st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
-    st.experimental_rerun()  # Rafraîchissement complet de la carte et de la liste
+    st.experimental_rerun()
 
 # Suppression et modification d'une entité dans une couche
 st.header("Gestion des entités dans les couches")
@@ -123,11 +113,10 @@ if st.session_state["layers"][selected_layer]:
             selected_entity["properties"] = {}
         selected_entity["properties"]["name"] = new_name
         st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
-        st.experimental_rerun()  # Rafraîchissement après modification
 
     if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
         st.session_state["layers"][selected_layer].pop(entity_idx)
         st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
-        st.experimental_rerun()  # Rafraîchissement après suppression
+        st.experimental_rerun()
 else:
     st.write("Aucune entité dans cette couche pour le moment.")
