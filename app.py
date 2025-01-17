@@ -1,87 +1,86 @@
 import streamlit as st
 from streamlit_folium import st_folium
 import folium
-from folium.plugins import Draw
-import geopandas as gpd
-from shapely.geometry import Point, LineString, Polygon
-import pandas as pd
+from folium.plugins import Draw, LayerControl
 
-# Fonction pour créer une carte Folium avec l'outil de dessin
-def create_map():
-    m = folium.Map(location=[46.603354, 1.888334], zoom_start=6)  # Centré sur la France
-    Draw(export=True, draw_options={"polyline": True, "polygon": True, "circle": False, "marker": True}).add_to(m)
-    return m
+# Initialisation des couches et des entités dans la session Streamlit
+if "layers" not in st.session_state:
+    st.session_state["layers"] = {"Plantations": [], "Polygonales": [], "Points": []}
 
-# Fonction pour convertir les dessins en GeoDataFrame
-def convert_drawings_to_gdf(drawings):
-    if not drawings or 'features' not in drawings:
-        return None
-    
-    features = []
-    for feature in drawings['features']:
-        geometry = feature.get('geometry', {})
-        if not geometry:
-            continue
-        
-        geom_type = geometry.get('type')
-        coordinates = geometry.get('coordinates')
-        
-        if geom_type == 'Point' and coordinates:
-            geom = Point(coordinates)
-        elif geom_type == 'LineString' and coordinates:
-            geom = LineString(coordinates)
-        elif geom_type == 'Polygon' and coordinates:
-            geom = Polygon(coordinates[0])  # Polygon a une structure imbriquée
-        else:
-            continue
-        
-        features.append({'geometry': geom, 'properties': {}})
-    
-    if features:
-        return gpd.GeoDataFrame(features, crs="EPSG:4326")
-    return None
+# Titre de l'application
+st.title("Carte Dynamique avec Gestion Avancée des Couches")
 
-# Interface Streamlit
-st.title("Carte Dynamique avec Dessin et Gestion de Couches")
+# Description
+st.markdown("""
+Créez des entités géographiques (points, lignes, polygones) en les dessinant sur la carte et ajoutez-les à des couches spécifiques. 
+Vous pouvez également activer ou désactiver des couches grâce au gestionnaire de couches.
+""")
 
-# Initialisation de la session state pour stocker les couches
-if 'layers' not in st.session_state:
-    st.session_state.layers = []
+# Sélection de la couche active pour ajouter les nouvelles entités
+layer_name = st.selectbox(
+    "Choisissez la couche à laquelle ajouter les entités",
+    list(st.session_state["layers"].keys())
+)
 
-# Création de la carte
-m = create_map()
+# Carte de base
+m = folium.Map(location=[5.5, -4.0], zoom_start=8)
 
-# Utilisation de st_folium pour afficher la carte et récupérer les interactions
-output = st_folium(m, width=1200, height=600, key="map")
+# Ajout des couches existantes à la carte
+layer_groups = {}
+for layer in st.session_state["layers"].keys():
+    layer_groups[layer] = folium.FeatureGroup(name=layer, show=True)
+    for feature in st.session_state["layers"][layer]:
+        feature_type = feature["geometry"]["type"]
+        coordinates = feature["geometry"]["coordinates"]
 
-# Récupération des dessins
-if output and 'last_active_drawing' in output:
-    drawings = output['last_active_drawing']
-    gdf = convert_drawings_to_gdf(drawings)
-    if gdf is not None:
-        st.session_state.layers.append(gdf)
+        if feature_type == "Point":
+            lat, lon = coordinates[1], coordinates[0]
+            folium.Marker(location=[lat, lon], popup=f"{layer} - Point").add_to(layer_groups[layer])
+        elif feature_type == "LineString":
+            folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color="blue").add_to(layer_groups[layer])
+        elif feature_type == "Polygon":
+            folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True).add_to(layer_groups[layer])
 
-# Affichage des couches
-if st.session_state.layers:
-    st.subheader("Couches disponibles")
-    for i, layer in enumerate(st.session_state.layers):
-        st.write(f"Couche {i+1}")
-        st.write(layer)
+    # Ajout du groupe à la carte
+    layer_groups[layer].add_to(m)
 
-# Option pour supprimer une couche
-if st.session_state.layers:
-    layer_to_remove = st.selectbox("Sélectionnez une couche à supprimer", options=list(range(len(st.session_state.layers))))
-    if st.button("Supprimer la couche sélectionnée"):
-        st.session_state.layers.pop(layer_to_remove)
-        st.experimental_rerun()
+# Gestionnaire de dessin
+draw = Draw(
+    draw_options={
+        "polyline": True,
+        "polygon": True,
+        "circle": False,
+        "rectangle": True,
+        "marker": True,
+        "circlemarker": False,
+    },
+    edit_options={"edit": True, "remove": True},
+)
+draw.add_to(m)
 
-# Option pour exporter les couches
-if st.session_state.layers:
-    if st.button("Exporter toutes les couches en GeoJSON"):
-        combined_gdf = gpd.GeoDataFrame(pd.concat(st.session_state.layers, ignore_index=True))
-        st.download_button(
-            label="Télécharger GeoJSON",
-            data=combined_gdf.to_json(),
-            file_name="layers.geojson",
-            mime="application/json"
-        )
+# Ajout du gestionnaire de couches
+LayerControl().add_to(m)
+
+# Affichage interactif de la carte
+output = st_folium(m, width=800, height=500, returned_objects=["last_active_drawing", "all_drawings"])
+
+# Gestion des nouveaux dessins
+if output and "last_active_drawing" in output and output["last_active_drawing"]:
+    new_feature = output["last_active_drawing"]
+    st.session_state["layers"][layer_name].append(new_feature)
+    st.success(f"Nouvelle entité ajoutée à la couche '{layer_name}'.")
+
+# Suppression d'une entité d'une couche
+st.header("Gestion des entités dans les couches")
+selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()))
+if st.session_state["layers"][selected_layer]:
+    entity_idx = st.selectbox(
+        "Sélectionnez une entité à supprimer",
+        range(len(st.session_state["layers"][selected_layer])),
+        format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}"
+    )
+    if st.button("Supprimer l'entité sélectionnée"):
+        st.session_state["layers"][selected_layer].pop(entity_idx)
+        st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
+else:
+    st.write("Aucune entité dans cette couche pour le moment.")
