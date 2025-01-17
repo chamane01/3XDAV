@@ -2,7 +2,6 @@ import streamlit as st
 from streamlit_folium import st_folium
 import folium
 from folium.plugins import Draw
-from folium import LayerControl
 
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
