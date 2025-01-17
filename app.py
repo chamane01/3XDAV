@@ -2,7 +2,7 @@ import streamlit as st
 from streamlit_folium import st_folium
 import folium
 from folium.plugins import Draw
-from folium import LayerControl  # Correction ici
+from folium import LayerControl
 
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
@@ -60,7 +60,7 @@ draw = Draw(
 draw.add_to(m)
 
 # Ajout du gestionnaire de couches
-LayerControl().add_to(m)  # Utilisation de folium.LayerControl
+LayerControl().add_to(m)
 
 # Affichage interactif de la carte
 output = st_folium(m, width=800, height=500, returned_objects=["last_active_drawing", "all_drawings"])
@@ -70,7 +70,8 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
     new_feature = output["last_active_drawing"]
     st.session_state["layers"][layer_name].append(new_feature)
     st.success(f"Nouvelle entité ajoutée à la couche '{layer_name}'.")
-    st.experimental_rerun()  # Recharger la carte pour afficher la nouvelle entité
+    if st.button("Recharger la carte"):  # Bouton pour recharger la carte
+        st.experimental_rerun()  # Recharger la carte pour afficher la nouvelle entité
 
 # Suppression d'une entité d'une couche
 st.header("Gestion des entités dans les couches")
@@ -84,6 +85,7 @@ if st.session_state["layers"][selected_layer]:
     if st.button("Supprimer l'entité sélectionnée"):
         st.session_state["layers"][selected_layer].pop(entity_idx)
         st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
-        st.experimental_rerun()  # Recharger la carte pour refléter la suppression
+        if st.button("Recharger la carte après suppression"):  # Bouton pour recharger la carte
+            st.experimental_rerun()  # Recharger la carte pour refléter la suppression
 else:
     st.write("Aucune entité dans cette couche pour le moment.")
