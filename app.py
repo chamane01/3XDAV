@@ -1,93 +1,63 @@
 import streamlit as st
 from streamlit_folium import st_folium
 import folium
+from folium.plugins import Draw
 
 # Stockage des couches dans la session Streamlit
-if "layers" not in st.session_state:
-    st.session_state["layers"] = {"points": [], "lines": [], "polylines": []}
+if "drawn_features" not in st.session_state:
+    st.session_state["drawn_features"] = []
 
 # Titre de l'application
-st.title("Carte Dynamique avec Gestion des Couches")
+st.title("Carte Dynamique avec Dessin Interactif des Couches")
 
-# Sélection de l'action
-action = st.sidebar.radio(
-    "Que souhaitez-vous faire ?",
-    ("Ajouter un point", "Ajouter une ligne", "Ajouter une polyligne", "Afficher la carte")
+# Description
+st.markdown("""
+Cette application vous permet de dessiner directement sur une carte pour ajouter des couches de points, lignes ou polygones. Les couches ajoutées sont sauvegardées et affichées dynamiquement.
+""")
+
+# Création de la carte Folium
+m = folium.Map(location=[5.5, -4.0], zoom_start=8)
+
+# Ajout de l'outil de dessin
+draw = Draw(
+    draw_options={
+        "polyline": True,
+        "polygon": True,
+        "circle": False,
+        "rectangle": True,
+        "marker": True,
+        "circlemarker": False,
+    },
+    edit_options={"edit": True, "remove": True},
 )
+draw.add_to(m)
 
-# Gestion des actions
-if action == "Ajouter un point":
-    st.header("Ajouter un Point")
-    lat = st.number_input("Latitude", format="%.6f")
-    lon = st.number_input("Longitude", format="%.6f")
-    nom = st.text_input("Nom du point")
+# Ajout des couches sauvegardées
+for feature in st.session_state["drawn_features"]:
+    feature_type = feature["geometry"]["type"]
+    coordinates = feature["geometry"]["coordinates"]
 
-    if st.button("Ajouter le point"):
-        st.session_state["layers"]["points"].append({"lat": lat, "lon": lon, "nom": nom})
-        st.success(f"Point '{nom}' ajouté avec succès.")
+    if feature_type == "Point":
+        lat, lon = coordinates[1], coordinates[0]
+        folium.Marker(location=[lat, lon], popup="Point").add_to(m)
+    elif feature_type == "LineString":
+        folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color="blue").add_to(m)
+    elif feature_type == "Polygon":
+        folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True).add_to(m)
 
-elif action == "Ajouter une ligne":
-    st.header("Ajouter une Ligne")
-    points = st.text_area(
-        "Coordonnées des points (format : lat,lon ; lat,lon ...)",
-        help="Exemple : 5.5,-4.1 ; 5.6,-4.2"
-    )
+# Affichage de la carte avec interaction
+output = st_folium(m, width=800, height=500, returned_objects=["last_active_drawing", "all_drawings"])
 
-    if st.button("Ajouter la ligne"):
-        try:
-            coords = [tuple(map(float, p.split(","))) for p in points.split(";")]
-            st.session_state["layers"]["lines"].append({"coords": coords})
-            st.success("Ligne ajoutée avec succès.")
-        except Exception as e:
-            st.error(f"Erreur dans le format des coordonnées : {e}")
+# Gestion des nouveaux dessins
+if output and "last_active_drawing" in output and output["last_active_drawing"]:
+    new_feature = output["last_active_drawing"]
+    st.session_state["drawn_features"].append(new_feature)
+    st.success("Nouvelle couche ajoutée avec succès !")
 
-elif action == "Ajouter une polyligne":
-    st.header("Ajouter une Polyligne")
-    points = st.text_area(
-        "Coordonnées des points (format : lat,lon ; lat,lon ...)",
-        help="Exemple : 5.5,-4.1 ; 5.6,-4.2 ; 5.7,-4.3"
-    )
-
-    if st.button("Ajouter la polyligne"):
-        try:
-            coords = [tuple(map(float, p.split(","))) for p in points.split(";")]
-            st.session_state["layers"]["polylines"].append({"coords": coords})
-            st.success("Polyligne ajoutée avec succès.")
-        except Exception as e:
-            st.error(f"Erreur dans le format des coordonnées : {e}")
-
-# Affichage de la carte
-if action == "Afficher la carte":
-    st.header("Carte Dynamique")
-
-    # Création de la carte Folium
-    m = folium.Map(location=[5.5, -4.0], zoom_start=8)
-
-    # Ajout des points
-    for point in st.session_state["layers"]["points"]:
-        folium.Marker(
-            location=[point["lat"], point["lon"]],
-            popup=point["nom"],
-            icon=folium.Icon(color="blue", icon="info-sign")
-        ).add_to(m)
-
-    # Ajout des lignes
-    for line in st.session_state["layers"]["lines"]:
-        folium.PolyLine(
-            locations=line["coords"],
-            color="green",
-            weight=2.5,
-            opacity=1
-        ).add_to(m)
-
-    # Ajout des polylignes
-    for polyline in st.session_state["layers"]["polylines"]:
-        folium.PolyLine(
-            locations=polyline["coords"],
-            color="red",
-            weight=2.5,
-            dash_array="5,5"
-        ).add_to(m)
-
-    # Affichage de la carte avec Streamlit
-    st_folium(m, width=700, height=500)
+# Afficher les couches sauvegardées
+st.subheader("Couches ajoutées :")
+if st.session_state["drawn_features"]:
+    for idx, feature in enumerate(st.session_state["drawn_features"], start=1):
+        st.write(f"**Couche {idx}** : {feature['geometry']['type']} - {feature['geometry']['coordinates']}")
+else:
+    st.write("Aucune couche ajoutée pour le moment.")
