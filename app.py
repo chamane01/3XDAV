@@ -59,11 +59,11 @@ draw = Draw(
 )
 draw.add_to(m)
 
-# Ajout du gestionnaire de couches
-LayerControl(collapsed=False).add_to(m)  # collapsed=False permet de l'afficher par défaut
+# Ajout du gestionnaire de couches avec une position ajustée
+LayerControl(position="topleft", collapsed=False).add_to(m)
 
 # Affichage interactif de la carte
-output = st_folium(m, width=800, height=500, returned_objects=["last_active_drawing", "all_drawings"])
+output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
 
 # Gestion des nouveaux dessins
 if output and "last_active_drawing" in output and output["last_active_drawing"]:
