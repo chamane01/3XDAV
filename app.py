@@ -1,53 +1,93 @@
 import streamlit as st
-import folium
 from streamlit_folium import st_folium
-from folium.plugins import Draw
+import folium
+
+# Stockage des couches dans la session Streamlit
+if "layers" not in st.session_state:
+    st.session_state["layers"] = {"points": [], "lines": [], "polylines": []}
 
 # Titre de l'application
-st.title("Carte Dynamique avec Gestion de Couches")
+st.title("Carte Dynamique avec Gestion des Couches")
 
-# Initialisation de la carte
-m = folium.Map(location=[46.603354, 1.888334], zoom_start=6)
-
-# Ajout du plugin Draw pour dessiner des points, lignes et polylignes
-draw = Draw(
-    draw_options={
-        "polyline": True,
-        "polygon": True,
-        "circle": False,
-        "marker": True,
-        "circlemarker": False,
-        "rectangle": True,
-    },
-    export=True,
+# Sélection de l'action
+action = st.sidebar.radio(
+    "Que souhaitez-vous faire ?",
+    ("Ajouter un point", "Ajouter une ligne", "Ajouter une polyligne", "Afficher la carte")
 )
-draw.add_to(m)
 
-# Affichage de la carte dans Streamlit
-output = st_folium(m, width=700, height=500)
+# Gestion des actions
+if action == "Ajouter un point":
+    st.header("Ajouter un Point")
+    lat = st.number_input("Latitude", format="%.6f")
+    lon = st.number_input("Longitude", format="%.6f")
+    nom = st.text_input("Nom du point")
 
-# Gestion des couches
-if output["last_active_drawing"]:
-    drawing = output["last_active_drawing"]
-    st.write("Dernier élément dessiné :")
-    st.json(drawing)
+    if st.button("Ajouter le point"):
+        st.session_state["layers"]["points"].append({"lat": lat, "lon": lon, "nom": nom})
+        st.success(f"Point '{nom}' ajouté avec succès.")
 
-    # Ajout de l'élément dessiné à une couche spécifique
-    if drawing["geometry"]["type"] == "Point":
+elif action == "Ajouter une ligne":
+    st.header("Ajouter une Ligne")
+    points = st.text_area(
+        "Coordonnées des points (format : lat,lon ; lat,lon ...)",
+        help="Exemple : 5.5,-4.1 ; 5.6,-4.2"
+    )
+
+    if st.button("Ajouter la ligne"):
+        try:
+            coords = [tuple(map(float, p.split(","))) for p in points.split(";")]
+            st.session_state["layers"]["lines"].append({"coords": coords})
+            st.success("Ligne ajoutée avec succès.")
+        except Exception as e:
+            st.error(f"Erreur dans le format des coordonnées : {e}")
+
+elif action == "Ajouter une polyligne":
+    st.header("Ajouter une Polyligne")
+    points = st.text_area(
+        "Coordonnées des points (format : lat,lon ; lat,lon ...)",
+        help="Exemple : 5.5,-4.1 ; 5.6,-4.2 ; 5.7,-4.3"
+    )
+
+    if st.button("Ajouter la polyligne"):
+        try:
+            coords = [tuple(map(float, p.split(","))) for p in points.split(";")]
+            st.session_state["layers"]["polylines"].append({"coords": coords})
+            st.success("Polyligne ajoutée avec succès.")
+        except Exception as e:
+            st.error(f"Erreur dans le format des coordonnées : {e}")
+
+# Affichage de la carte
+if action == "Afficher la carte":
+    st.header("Carte Dynamique")
+
+    # Création de la carte Folium
+    m = folium.Map(location=[5.5, -4.0], zoom_start=8)
+
+    # Ajout des points
+    for point in st.session_state["layers"]["points"]:
         folium.Marker(
-            location=[drawing["geometry"]["coordinates"][1], drawing["geometry"]["coordinates"][0]],
-            popup="Point",
-        ).add_to(m)
-    elif drawing["geometry"]["type"] == "LineString":
-        folium.PolyLine(
-            locations=[(lat, lon) for lon, lat in drawing["geometry"]["coordinates"]],
-            popup="Ligne",
-        ).add_to(m)
-    elif drawing["geometry"]["type"] == "Polygon":
-        folium.Polygon(
-            locations=[(lat, lon) for lon, lat in drawing["geometry"]["coordinates"][0]],
-            popup="Polygone",
+            location=[point["lat"], point["lon"]],
+            popup=point["nom"],
+            icon=folium.Icon(color="blue", icon="info-sign")
         ).add_to(m)
 
-# Affichage de la carte mise à jour
-st_folium(m, width=700, height=500)
+    # Ajout des lignes
+    for line in st.session_state["layers"]["lines"]:
+        folium.PolyLine(
+            locations=line["coords"],
+            color="green",
+            weight=2.5,
+            opacity=1
+        ).add_to(m)
+
+    # Ajout des polylignes
+    for polyline in st.session_state["layers"]["polylines"]:
+        folium.PolyLine(
+            locations=polyline["coords"],
+            color="red",
+            weight=2.5,
+            dash_array="5,5"
+        ).add_to(m)
+
+    # Affichage de la carte avec Streamlit
+    st_folium(m, width=700, height=500)
