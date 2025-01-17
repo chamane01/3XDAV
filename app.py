@@ -7,6 +7,8 @@ from folium import LayerControl
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
     st.session_state["layers"] = {"Routes": [], "Bâtiments": [], "Polygonale": []}
+
+# Initialisation des nouvelles entités temporairement dessinées
 if "new_features" not in st.session_state:
     st.session_state["new_features"] = []
 
@@ -82,18 +84,26 @@ output = st_folium(m, width=800, height=600, returned_objects=["last_active_draw
 # Gestion des nouveaux dessins
 if output and "last_active_drawing" in output and output["last_active_drawing"]:
     new_feature = output["last_active_drawing"]
+    # Ajouter l'entité temporairement si elle n'existe pas déjà
     if new_feature not in st.session_state["new_features"]:
         st.session_state["new_features"].append(new_feature)
-    st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
+        st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
+
+# Affichage des entités temporairement dessinées
+if st.session_state["new_features"]:
+    st.write(f"**Entités dessinées temporairement ({len(st.session_state['new_features'])}) :**")
+    for idx, feature in enumerate(st.session_state["new_features"]):
+        st.write(f"- Entité {idx + 1}: {feature['geometry']['type']}")
 
 # Bouton pour enregistrer les nouvelles entités dans la couche active
 if st.button("Enregistrer les entités"):
+    # Ajouter les entités non dupliquées à la couche sélectionnée
     current_layer = st.session_state["layers"][layer_name]
     for feature in st.session_state["new_features"]:
         if feature not in current_layer:
             current_layer.append(feature)
     st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
-    st.experimental_rerun()
+    st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
 
 # Suppression et modification d'une entité dans une couche
 st.header("Gestion des entités dans les couches")
@@ -117,6 +127,5 @@ if st.session_state["layers"][selected_layer]:
     if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
         st.session_state["layers"][selected_layer].pop(entity_idx)
         st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
-        st.experimental_rerun()
 else:
     st.write("Aucune entité dans cette couche pour le moment.")
