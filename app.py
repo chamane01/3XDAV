@@ -23,7 +23,7 @@ layer_name = st.selectbox(
     list(st.session_state["layers"].keys())
 )
 
-# Carte de base
+# Carte de base avec des dimensions ajustées
 m = folium.Map(location=[5.5, -4.0], zoom_start=8)
 
 # Ajout des couches existantes à la carte
@@ -62,8 +62,8 @@ draw.add_to(m)
 # Ajout du gestionnaire de couches (mode déplié, position en haut à droite)
 LayerControl(collapsed=False, position="topright").add_to(m)
 
-# Affichage interactif de la carte
-output = st_folium(m, width=800, height=500, returned_objects=["last_active_drawing", "all_drawings"])
+# Affichage interactif de la carte avec des dimensions ajustées
+output = st_folium(m, width=1200, height=800, returned_objects=["last_active_drawing", "all_drawings"])
 
 # Gestion des nouveaux dessins
 if output and "last_active_drawing" in output and output["last_active_drawing"]:
