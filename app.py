@@ -4,7 +4,7 @@ import folium
 from folium.plugins import Draw
 import geopandas as gpd
 from shapely.geometry import Point, LineString, Polygon
-import json
+import pandas as pd
 
 # Fonction pour créer une carte Folium avec l'outil de dessin
 def create_map():
@@ -14,17 +14,27 @@ def create_map():
 
 # Fonction pour convertir les dessins en GeoDataFrame
 def convert_drawings_to_gdf(drawings):
+    if not drawings or 'features' not in drawings:
+        return None
+    
     features = []
     for feature in drawings['features']:
-        geometry = feature['geometry']
-        if geometry['type'] == 'Point':
-            geom = Point(geometry['coordinates'])
-        elif geometry['type'] == 'LineString':
-            geom = LineString(geometry['coordinates'])
-        elif geometry['type'] == 'Polygon':
-            geom = Polygon(geometry['coordinates'][0])  # Polygon a une structure imbriquée
+        geometry = feature.get('geometry', {})
+        if not geometry:
+            continue
+        
+        geom_type = geometry.get('type')
+        coordinates = geometry.get('coordinates')
+        
+        if geom_type == 'Point' and coordinates:
+            geom = Point(coordinates)
+        elif geom_type == 'LineString' and coordinates:
+            geom = LineString(coordinates)
+        elif geom_type == 'Polygon' and coordinates:
+            geom = Polygon(coordinates[0])  # Polygon a une structure imbriquée
         else:
             continue
+        
         features.append({'geometry': geom, 'properties': {}})
     
     if features:
@@ -47,10 +57,9 @@ output = st_folium(m, width=1200, height=600, key="map")
 # Récupération des dessins
 if output and 'last_active_drawing' in output:
     drawings = output['last_active_drawing']
-    if drawings:
-        gdf = convert_drawings_to_gdf(drawings)
-        if gdf is not None:
-            st.session_state.layers.append(gdf)
+    gdf = convert_drawings_to_gdf(drawings)
+    if gdf is not None:
+        st.session_state.layers.append(gdf)
 
 # Affichage des couches
 if st.session_state.layers:
@@ -69,7 +78,7 @@ if st.session_state.layers:
 # Option pour exporter les couches
 if st.session_state.layers:
     if st.button("Exporter toutes les couches en GeoJSON"):
-        combined_gdf = gpd.GeoDataFrame(gpd.pd.concat(st.session_state.layers, ignore_index=True))
+        combined_gdf = gpd.GeoDataFrame(pd.concat(st.session_state.layers, ignore_index=True))
         st.download_button(
             label="Télécharger GeoJSON",
             data=combined_gdf.to_json(),
