@@ -12,6 +12,9 @@ if "layers" not in st.session_state:
 if "new_features" not in st.session_state:
     st.session_state["new_features"] = []
 
+# Récupération des paramètres de l'URL
+query_params = st.query_params
+
 # Titre de l'application
 st.title("Carte Dynamique avec Gestion Avancée des Couches")
 
@@ -21,7 +24,7 @@ Créez des entités géographiques (points, lignes, polygones) en les dessinant 
 Vous pouvez également activer ou désactiver des couches grâce au gestionnaire de couches.
 """)
 
-# Ajout d'une nouvelle couche par nom
+# Ajouter une nouvelle couche par nom
 st.header("Ajouter une nouvelle couche")
 new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
 if st.button("Ajouter la couche") and new_layer_name:
@@ -31,12 +34,19 @@ if st.button("Ajouter la couche") and new_layer_name:
     else:
         st.warning(f"La couche '{new_layer_name}' existe déjà.")
 
-# Sélection de la couche active pour ajouter les nouvelles entités
+# Récupérer la couche active depuis les paramètres de l'URL ou utiliser une valeur par défaut
+active_layer = query_params.get("active_layer", [list(st.session_state["layers"].keys())[0]])[0]
+
+# Sélectionner la couche active pour ajouter les nouvelles entités
 st.header("Sélectionner une couche active")
 layer_name = st.selectbox(
     "Choisissez la couche à laquelle ajouter les entités",
-    list(st.session_state["layers"].keys())
+    list(st.session_state["layers"].keys()),
+    index=list(st.session_state["layers"].keys()).index(active_layer)  # Assure que la couche active est pré-sélectionnée
 )
+
+# Mise à jour du paramètre active_layer dans l'URL
+st.experimental_set_query_params(active_layer=layer_name)
 
 # Carte de base
 m = folium.Map(location=[5.5, -4.0], zoom_start=8)
