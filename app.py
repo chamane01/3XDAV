@@ -89,9 +89,8 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
 # Bouton pour enregistrer les nouvelles entités
 if st.button("Enregistrer les entités") and "new_features" in st.session_state:
     st.session_state["layers"][layer_name].extend(st.session_state["new_features"])
-    st.session_state.pop("new_features", None)
+    st.session_state["new_features"] = []  # Réinitialisation des nouvelles entités
     st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
-    st.experimental_rerun()
 
 # Suppression et modification d'une entité dans une couche
 st.header("Gestion des entités dans les couches")
@@ -106,15 +105,14 @@ if st.session_state["layers"][selected_layer]:
     current_name = selected_entity.get("properties", {}).get("name", "")
     new_name = st.text_input("Nom de l'entité", current_name)
 
-    if st.button("Modifier le nom"):
+    if st.button("Modifier le nom", key=f"edit_{entity_idx}"):
         if "properties" not in selected_entity:
             selected_entity["properties"] = {}
         selected_entity["properties"]["name"] = new_name
         st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
 
-    if st.button("Supprimer l'entité sélectionnée"):
+    if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
         st.session_state["layers"][selected_layer].pop(entity_idx)
         st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
-        st.experimental_rerun()
 else:
     st.write("Aucune entité dans cette couche pour le moment.")
