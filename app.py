@@ -104,6 +104,9 @@ if st.button("Enregistrer les entités"):
             current_layer.append(feature)
     st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
     st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
+    
+    # Réinitialiser la carte pour inclure les nouvelles entités
+    st.experimental_rerun()  # Actualisation de l'application
 
 # Suppression et modification d'une entité dans une couche
 st.header("Gestion des entités dans les couches")
