@@ -21,7 +21,7 @@ Créez des entités géographiques (points, lignes, polygones) en les dessinant 
 Vous pouvez également activer ou désactiver des couches grâce au gestionnaire de couches.
 """)
 
-# Sidebar pour la gestion des couches (permanente)
+# Première sidebar (permanente)
 with st.sidebar:
     st.header("Gestion des Couches")
 
@@ -83,6 +83,18 @@ with st.sidebar:
     else:
         st.write("Aucune entité dans cette couche pour le moment.")
 
+# Deuxième Sidebar (calcul des volumes) avec affichage conditionnel
+if st.button("Calculer des volumes"):
+    with st.sidebar:
+        st.header("Calcul des Volumes")
+
+        # Ajoutez ici des éléments pour le calcul des volumes, par exemple:
+        volume_data = st.text_input("Entrez les dimensions pour calculer le volume")
+        if st.button("Calculer"):
+            st.write(f"Volume calculé pour : {volume_data}")
+        else:
+            st.write("Entrez des données pour effectuer le calcul.")
+
 # Carte de base
 m = folium.Map(location=[5.5, -4.0], zoom_start=8)
 
@@ -126,14 +138,6 @@ LayerControl(position="topleft", collapsed=True).add_to(m)
 # Affichage interactif de la carte
 output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
 
-# Afficher ou masquer la deuxième sidebar avec un bouton
-if st.button("Calculer des volumes"):
-    with st.sidebar:
-        st.header("Calcul de Volumes")
-        # Ajouter ici les fonctionnalités de calcul de volume, par exemple
-        st.subheader("Volume de l'entité sélectionnée")
-        st.write("Fonctionnalité de calcul à implémenter ici.")
-        
 # Gestion des nouveaux dessins
 if output and "last_active_drawing" in output and output["last_active_drawing"]:
     new_feature = output["last_active_drawing"]
