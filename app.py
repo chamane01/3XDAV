@@ -21,22 +21,67 @@ Créez des entités géographiques (points, lignes, polygones) en les dessinant 
 Vous pouvez également activer ou désactiver des couches grâce au gestionnaire de couches.
 """)
 
-# Ajout d'une nouvelle couche par nom
-st.header("Ajouter une nouvelle couche")
-new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
-if st.button("Ajouter la couche") and new_layer_name:
-    if new_layer_name not in st.session_state["layers"]:
-        st.session_state["layers"][new_layer_name] = []
-        st.success(f"La couche '{new_layer_name}' a été ajoutée.")
-    else:
-        st.warning(f"La couche '{new_layer_name}' existe déjà.")
+# Sidebar pour la gestion des couches
+with st.sidebar:
+    st.header("Gestion des Couches")
 
-# Sélection de la couche active pour ajouter les nouvelles entités
-st.header("Sélectionner une couche active")
-layer_name = st.selectbox(
-    "Choisissez la couche à laquelle ajouter les entités",
-    list(st.session_state["layers"].keys())
-)
+    # Ajout d'une nouvelle couche par nom
+    st.subheader("Ajouter une nouvelle couche")
+    new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
+    if st.button("Ajouter la couche") and new_layer_name:
+        if new_layer_name not in st.session_state["layers"]:
+            st.session_state["layers"][new_layer_name] = []
+            st.success(f"La couche '{new_layer_name}' a été ajoutée.")
+        else:
+            st.warning(f"La couche '{new_layer_name}' existe déjà.")
+
+    # Sélection de la couche active pour ajouter les nouvelles entités
+    st.subheader("Sélectionner une couche active")
+    layer_name = st.selectbox(
+        "Choisissez la couche à laquelle ajouter les entités",
+        list(st.session_state["layers"].keys())
+    )
+
+    # Affichage des entités temporairement dessinées
+    if st.session_state["new_features"]:
+        st.write(f"**Entités dessinées temporairement ({len(st.session_state['new_features'])}) :**")
+        for idx, feature in enumerate(st.session_state["new_features"]):
+            st.write(f"- Entité {idx + 1}: {feature['geometry']['type']}")
+
+    # Bouton pour enregistrer les nouvelles entités dans la couche active
+    if st.button("Enregistrer les entités"):
+        # Ajouter les entités non dupliquées à la couche sélectionnée
+        current_layer = st.session_state["layers"][layer_name]
+        for feature in st.session_state["new_features"]:
+            if feature not in current_layer:
+                current_layer.append(feature)
+        st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
+        st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
+
+    # Suppression et modification d'une entité dans une couche
+    st.subheader("Gestion des entités dans les couches")
+    selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()))
+    if st.session_state["layers"][selected_layer]:
+        entity_idx = st.selectbox(
+            "Sélectionnez une entité à gérer",
+            range(len(st.session_state["layers"][selected_layer])),
+            format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}"
+        )
+        selected_entity = st.session_state["layers"][selected_layer][entity_idx]
+        current_name = selected_entity.get("properties", {}).get("name", "")
+        new_name = st.text_input("Nom de l'entité", current_name)
+
+        if st.button("Modifier le nom", key=f"edit_{entity_idx}"):
+            if "properties" not in selected_entity:
+                selected_entity["properties"] = {}
+            selected_entity["properties"]["name"] = new_name
+            st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
+
+        if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
+            st.session_state["layers"][selected_layer].pop(entity_idx)
+            st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
+    else:
+        st.write("Aucune entité dans cette couche pour le moment.")
 
 # Carte de base
 m = folium.Map(location=[5.5, -4.0], zoom_start=8)
@@ -88,44 +133,3 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
     if new_feature not in st.session_state["new_features"]:
         st.session_state["new_features"].append(new_feature)
         st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
-
-# Affichage des entités temporairement dessinées
-if st.session_state["new_features"]:
-    st.write(f"**Entités dessinées temporairement ({len(st.session_state['new_features'])}) :**")
-    for idx, feature in enumerate(st.session_state["new_features"]):
-        st.write(f"- Entité {idx + 1}: {feature['geometry']['type']}")
-
-# Bouton pour enregistrer les nouvelles entités dans la couche active
-if st.button("Enregistrer les entités"):
-    # Ajouter les entités non dupliquées à la couche sélectionnée
-    current_layer = st.session_state["layers"][layer_name]
-    for feature in st.session_state["new_features"]:
-        if feature not in current_layer:
-            current_layer.append(feature)
-    st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
-    st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
-
-# Suppression et modification d'une entité dans une couche
-st.header("Gestion des entités dans les couches")
-selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()))
-if st.session_state["layers"][selected_layer]:
-    entity_idx = st.selectbox(
-        "Sélectionnez une entité à gérer",
-        range(len(st.session_state["layers"][selected_layer])),
-        format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}"
-    )
-    selected_entity = st.session_state["layers"][selected_layer][entity_idx]
-    current_name = selected_entity.get("properties", {}).get("name", "")
-    new_name = st.text_input("Nom de l'entité", current_name)
-
-    if st.button("Modifier le nom", key=f"edit_{entity_idx}"):
-        if "properties" not in selected_entity:
-            selected_entity["properties"] = {}
-        selected_entity["properties"]["name"] = new_name
-        st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
-
-    if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
-        st.session_state["layers"][selected_layer].pop(entity_idx)
-        st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
-else:
-    st.write("Aucune entité dans cette couche pour le moment.")
