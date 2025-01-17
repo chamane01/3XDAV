@@ -7,6 +7,8 @@ from folium import LayerControl
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
     st.session_state["layers"] = {"Routes": [], "Bâtiments": [], "Polygonale": []}
+if "refresh_flag" not in st.session_state:
+    st.session_state["refresh_flag"] = False
 
 # Titre de l'application
 st.title("Carte Dynamique avec Gestion Avancée des Couches")
@@ -34,6 +36,13 @@ layer_name = st.selectbox(
     list(st.session_state["layers"].keys())
 )
 
+# Gestionnaire de styles
+styles = {
+    "Routes": {"color": "red"},
+    "Bâtiments": {"color": "blue"},
+    "Polygonale": {"color": "green"},
+}
+
 # Carte de base
 m = folium.Map(location=[5.5, -4.0], zoom_start=8)
 
@@ -41,6 +50,7 @@ m = folium.Map(location=[5.5, -4.0], zoom_start=8)
 layer_groups = {}
 for layer, features in st.session_state["layers"].items():
     layer_groups[layer] = folium.FeatureGroup(name=layer, show=True)
+    style = styles.get(layer, {"color": "black"})
     for feature in features:
         feature_type = feature["geometry"]["type"]
         coordinates = feature["geometry"]["coordinates"]
@@ -48,13 +58,12 @@ for layer, features in st.session_state["layers"].items():
 
         if feature_type == "Point":
             lat, lon = coordinates[1], coordinates[0]
-            folium.Marker(location=[lat, lon], popup=popup).add_to(layer_groups[layer])
+            folium.Marker(location=[lat, lon], popup=popup, icon=folium.Icon(color=style["color"])).add_to(layer_groups[layer])
         elif feature_type == "LineString":
-            folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color="blue", popup=popup).add_to(layer_groups[layer])
+            folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color=style["color"], popup=popup).add_to(layer_groups[layer])
         elif feature_type == "Polygon":
-            folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True, popup=popup).add_to(layer_groups[layer])
+            folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color=style["color"], fill=True, popup=popup).add_to(layer_groups[layer])
 
-    # Ajout du groupe à la carte
     layer_groups[layer].add_to(m)
 
 # Gestionnaire de dessin
@@ -80,19 +89,17 @@ output = st_folium(m, width=800, height=600, returned_objects=["last_active_draw
 # Gestion des nouveaux dessins
 if output and "last_active_drawing" in output and output["last_active_drawing"]:
     new_feature = output["last_active_drawing"]
-    # Ajouter temporairement les entités pour éviter le rechargement de la carte
-    if "new_features" not in st.session_state:
-        st.session_state["new_features"] = []
-    st.session_state["new_features"].append(new_feature)
-    st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
+    if new_feature not in st.session_state["layers"][layer_name]:  # Évite les doublons
+        st.session_state["layers"][layer_name].append(new_feature)
+        st.success("Nouvelle entité ajoutée.")
 
-# Bouton pour enregistrer les nouvelles entités
-if st.button("Enregistrer les entités") and "new_features" in st.session_state:
-    st.session_state["layers"][layer_name].extend(st.session_state["new_features"])
-    st.session_state["new_features"] = []  # Réinitialisation des nouvelles entités
-    st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
+# Rafraîchissement manuel
+st.header("Rafraîchissement manuel")
+if st.button("Rafraîchir les listes et cartes"):
+    st.session_state["refresh_flag"] = not st.session_state["refresh_flag"]
+    st.experimental_rerun()
 
-# Suppression et modification d'une entité dans une couche
+# Gestion des entités
 st.header("Gestion des entités dans les couches")
 selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()))
 if st.session_state["layers"][selected_layer]:
