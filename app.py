@@ -14,7 +14,7 @@ st.title("Carte Dynamique avec Gestion Avancée des Couches")
 # Description
 st.markdown("""
 Créez des entités géographiques (points, lignes, polygones) en les dessinant sur la carte et ajoutez-les à des couches spécifiques. 
-Vous pouvez également activer ou désactiver des couches grâce au gestionnaire de couches.
+Vous pouvez également activer ou désactiver des couches grâce au gestionnaire de couches en haut à droite de la carte.
 """)
 
 # Sélection de la couche active pour ajouter les nouvelles entités
@@ -59,8 +59,8 @@ draw = Draw(
 )
 draw.add_to(m)
 
-# Ajout du gestionnaire de couches
-LayerControl().add_to(m)  # Active le gestionnaire de couches
+# Ajout du gestionnaire de couches (en haut à droite de la carte)
+folium.LayerControl(position="topright").add_to(m)
 
 # Affichage interactif de la carte
 output = st_folium(m, width=800, height=500, returned_objects=["last_active_drawing", "all_drawings"])
