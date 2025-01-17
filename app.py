@@ -26,6 +26,9 @@ layer_name = st.selectbox(
 # Carte de base
 m = folium.Map(location=[5.5, -4.0], zoom_start=8)
 
+# Ajout de la couche de base OSM
+folium.TileLayer('openstreetmap', name='Carte OSM').add_to(m)
+
 # Ajout des couches existantes à la carte
 layer_groups = {}
 for layer, features in st.session_state["layers"].items():
