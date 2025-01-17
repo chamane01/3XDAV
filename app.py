@@ -4,9 +4,6 @@ import folium
 from folium.plugins import Draw
 from folium import LayerControl
 
-# Configurer la page avec la sidebar à gauche
-st.set_page_config(layout="wide", page_title="Carte Dynamique", initial_sidebar_state="expanded")
-
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
     st.session_state["layers"] = {"Routes": [], "Bâtiments": [], "Polygonale": []}
@@ -24,7 +21,7 @@ Créez des entités géographiques (points, lignes, polygones) en les dessinant 
 Vous pouvez également activer ou désactiver des couches grâce au gestionnaire de couches.
 """)
 
-# Sidebar pour la gestion des couches
+# Sidebar pour la gestion des couches (permanente)
 with st.sidebar:
     st.header("Gestion des Couches")
 
@@ -129,6 +126,14 @@ LayerControl(position="topleft", collapsed=True).add_to(m)
 # Affichage interactif de la carte
 output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
 
+# Afficher ou masquer la deuxième sidebar avec un bouton
+if st.button("Calculer des volumes"):
+    with st.sidebar:
+        st.header("Calcul de Volumes")
+        # Ajouter ici les fonctionnalités de calcul de volume, par exemple
+        st.subheader("Volume de l'entité sélectionnée")
+        st.write("Fonctionnalité de calcul à implémenter ici.")
+        
 # Gestion des nouveaux dessins
 if output and "last_active_drawing" in output and output["last_active_drawing"]:
     new_feature = output["last_active_drawing"]
