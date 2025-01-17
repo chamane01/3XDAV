@@ -104,9 +104,25 @@ if st.button("Enregistrer les entités"):
             current_layer.append(feature)
     st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
     st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
-    
-    # Réinitialiser la carte pour inclure les nouvelles entités
-    st.experimental_rerun()  # Actualisation de l'application
+
+    # Redessiner la carte en ajoutant les nouvelles entités
+    for feature in current_layer:
+        feature_type = feature["geometry"]["type"]
+        coordinates = feature["geometry"]["coordinates"]
+        popup = feature.get("properties", {}).get("name", f"{layer_name} - Entité")
+
+        if feature_type == "Point":
+            lat, lon = coordinates[1], coordinates[0]
+            folium.Marker(location=[lat, lon], popup=popup).add_to(layer_groups[layer_name])
+        elif feature_type == "LineString":
+            folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color="blue", popup=popup).add_to(layer_groups[layer_name])
+        elif feature_type == "Polygon":
+            folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True, popup=popup).add_to(layer_groups[layer_name])
+
+    # Ajout du groupe à la carte
+    layer_groups[layer_name].add_to(m)
+
+    st.experimental_set_query_params(update="true")  # Simple hack pour forcer la mise à jour visuelle
 
 # Suppression et modification d'une entité dans une couche
 st.header("Gestion des entités dans les couches")
