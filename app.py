@@ -102,7 +102,7 @@ def calculate_geojson_bounds(geojson_data):
 
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
-    st.session_state["layers"] = {"Routes": [], "Bâtiments": [], "Polygonale": [], "MNT": [], "MNS": [], "Orthophotos": []}
+    st.session_state["layers"] = {}  # Aucune couche prédéfinie
 
 if "new_features" not in st.session_state:
     st.session_state["new_features"] = []
@@ -274,13 +274,9 @@ with st.sidebar:
     st.subheader("2. Ajouter une nouvelle couche")
     new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
     if st.button("Ajouter la couche") and new_layer_name:
-        # Réinitialiser les couches prédéfinies
-        st.session_state["layers"] = {}  # Supprime toutes les couches prédéfinies
-        st.session_state["uploaded_layers"] = []  # Supprime toutes les couches téléversées
-        
         # Ajouter la nouvelle couche
         st.session_state["layers"][new_layer_name] = []
-        st.success(f"La couche '{new_layer_name}' a été ajoutée. Toutes les couches prédéfinies ont été supprimées.")
+        st.success(f"La couche '{new_layer_name}' a été ajoutée.")
 
     # Sélection de la couche active pour ajouter les nouvelles entités
     st.subheader("Sélectionner une couche active")
