@@ -304,27 +304,32 @@ with st.sidebar:
     # Suppression et modification d'une entité dans une couche
     st.subheader("Gestion des entités dans les couches")
     selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()))
-    if st.session_state["layers"][selected_layer]:
-        entity_idx = st.selectbox(
-            "Sélectionnez une entité à gérer",
-            range(len(st.session_state["layers"][selected_layer])),
-            format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}"
-        )
-        selected_entity = st.session_state["layers"][selected_layer][entity_idx]
-        current_name = selected_entity.get("properties", {}).get("name", "")
-        new_name = st.text_input("Nom de l'entité", current_name)
+    
+    # Vérifier si la couche sélectionnée existe dans st.session_state["layers"]
+    if selected_layer in st.session_state["layers"]:
+        if st.session_state["layers"][selected_layer]:  # Vérifier si la couche contient des entités
+            entity_idx = st.selectbox(
+                "Sélectionnez une entité à gérer",
+                range(len(st.session_state["layers"][selected_layer])),
+                format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}"
+            )
+            selected_entity = st.session_state["layers"][selected_layer][entity_idx]
+            current_name = selected_entity.get("properties", {}).get("name", "")
+            new_name = st.text_input("Nom de l'entité", current_name)
 
-        if st.button("Modifier le nom", key=f"edit_{entity_idx}"):
-            if "properties" not in selected_entity:
-                selected_entity["properties"] = {}
-            selected_entity["properties"]["name"] = new_name
-            st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
+            if st.button("Modifier le nom", key=f"edit_{entity_idx}"):
+                if "properties" not in selected_entity:
+                    selected_entity["properties"] = {}
+                selected_entity["properties"]["name"] = new_name
+                st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
 
-        if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
-            st.session_state["layers"][selected_layer].pop(entity_idx)
-            st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
+            if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
+                st.session_state["layers"][selected_layer].pop(entity_idx)
+                st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
+        else:
+            st.write("Aucune entité dans cette couche pour le moment.")
     else:
-        st.write("Aucune entité dans cette couche pour le moment.")
+        st.warning(f"La couche '{selected_layer}' n'existe pas.")
 
 # Gestionnaire de dessin
 draw = Draw(
