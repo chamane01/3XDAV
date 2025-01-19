@@ -273,7 +273,7 @@ with st.sidebar:
     # Sous-titre 2 : Ajouter une nouvelle couche
     st.subheader("2. Ajouter une nouvelle couche")
     new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
-    if st.button("Ajouter la couche", key="add_new_layer_button") and new_layer_name:
+    if st.button("Ajouter la couche") and new_layer_name:
         if new_layer_name not in st.session_state["layers"]:
             st.session_state["layers"][new_layer_name] = []
             st.success(f"La couche '{new_layer_name}' a été ajoutée.")
@@ -284,8 +284,7 @@ with st.sidebar:
     st.subheader("Sélectionner une couche active")
     layer_name = st.selectbox(
         "Choisissez la couche à laquelle ajouter les entités",
-        list(st.session_state["layers"].keys()),
-        key="layer_selectbox"
+        list(st.session_state["layers"].keys())
     )
 
     # Affichage des entités temporairement dessinées
@@ -295,7 +294,7 @@ with st.sidebar:
             st.write(f"- Entité {idx + 1}: {feature['geometry']['type']}")
 
     # Bouton pour enregistrer les nouvelles entités dans la couche active
-    if st.button("Enregistrer les entités", key="save_features_button"):
+    if st.button("Enregistrer les entités"):
         # Ajouter les entités non dupliquées à la couche sélectionnée
         current_layer = st.session_state["layers"][layer_name]
         for feature in st.session_state["new_features"]:
@@ -306,17 +305,16 @@ with st.sidebar:
 
     # Suppression et modification d'une entité dans une couche
     st.subheader("Gestion des entités dans les couches")
-    selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()), key="selected_layer_selectbox")
+    selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()))
     if st.session_state["layers"][selected_layer]:
         entity_idx = st.selectbox(
             "Sélectionnez une entité à gérer",
             range(len(st.session_state["layers"][selected_layer])),
-            format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}",
-            key="entity_selectbox"
+            format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}"
         )
         selected_entity = st.session_state["layers"][selected_layer][entity_idx]
         current_name = selected_entity.get("properties", {}).get("name", "")
-        new_name = st.text_input("Nom de l'entité", current_name, key="entity_name_input")
+        new_name = st.text_input("Nom de l'entité", current_name)
 
         if st.button("Modifier le nom", key=f"edit_{entity_idx}"):
             if "properties" not in selected_entity:
