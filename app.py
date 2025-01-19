@@ -274,11 +274,13 @@ with st.sidebar:
     st.subheader("2. Ajouter une nouvelle couche")
     new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
     if st.button("Ajouter la couche") and new_layer_name:
-        if new_layer_name not in st.session_state["layers"]:
-            st.session_state["layers"][new_layer_name] = []
-            st.success(f"La couche '{new_layer_name}' a été ajoutée.")
-        else:
-            st.warning(f"La couche '{new_layer_name}' existe déjà.")
+        # Réinitialiser les couches prédéfinies
+        st.session_state["layers"] = {}  # Supprime toutes les couches prédéfinies
+        st.session_state["uploaded_layers"] = []  # Supprime toutes les couches téléversées
+        
+        # Ajouter la nouvelle couche
+        st.session_state["layers"][new_layer_name] = []
+        st.success(f"La couche '{new_layer_name}' a été ajoutée. Toutes les couches prédéfinies ont été supprimées.")
 
     # Sélection de la couche active pour ajouter les nouvelles entités
     st.subheader("Sélectionner une couche active")
