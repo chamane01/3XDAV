@@ -20,7 +20,7 @@ import os
 
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
-    st.session_state["layers"] = {"Routes": [], "Bâtiments": [], "Polygonale": []}
+    st.session_state["layers"] = {}  # Plus de couches prédéfinies
 
 if "uploaded_layers" not in st.session_state:
     st.session_state["uploaded_layers"] = []
@@ -34,7 +34,7 @@ st.title("Carte Dynamique avec Gestion Avancée des Couches")
 # Description
 st.markdown("""
 Créez des entités géographiques (points, lignes, polygones) en les dessinant sur la carte et ajoutez-les à des couches spécifiques. 
-Vous pouvez également activer ou désactiver des couches grâce au gestionnaire de couches.
+Vous pouvez également téléverser des fichiers TIFF ou GeoJSON pour les superposer à la carte.
 """)
 
 # Sidebar pour la gestion des couches
@@ -53,10 +53,13 @@ with st.sidebar:
 
     # Sélection de la couche active pour ajouter les nouvelles entités
     st.subheader("Sélectionner une couche active")
-    layer_name = st.selectbox(
-        "Choisissez la couche à laquelle ajouter les entités",
-        list(st.session_state["layers"].keys())
-    )
+    if st.session_state["layers"]:
+        layer_name = st.selectbox(
+            "Choisissez la couche à laquelle ajouter les entités",
+            list(st.session_state["layers"].keys())
+        )
+    else:
+        st.write("Aucune couche disponible. Ajoutez une couche pour commencer.")
 
     # Affichage des entités temporairement dessinées
     if st.session_state["new_features"]:
@@ -65,7 +68,7 @@ with st.sidebar:
             st.write(f"- Entité {idx + 1}: {feature['geometry']['type']}")
 
     # Bouton pour enregistrer les nouvelles entités dans la couche active
-    if st.button("Enregistrer les entités"):
+    if st.button("Enregistrer les entités") and st.session_state["layers"]:
         # Ajouter les entités non dupliquées à la couche sélectionnée
         current_layer = st.session_state["layers"][layer_name]
         for feature in st.session_state["new_features"]:
@@ -76,28 +79,31 @@ with st.sidebar:
 
     # Suppression et modification d'une entité dans une couche
     st.subheader("Gestion des entités dans les couches")
-    selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()))
-    if st.session_state["layers"][selected_layer]:
-        entity_idx = st.selectbox(
-            "Sélectionnez une entité à gérer",
-            range(len(st.session_state["layers"][selected_layer])),
-            format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}"
-        )
-        selected_entity = st.session_state["layers"][selected_layer][entity_idx]
-        current_name = selected_entity.get("properties", {}).get("name", "")
-        new_name = st.text_input("Nom de l'entité", current_name)
+    if st.session_state["layers"]:
+        selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()))
+        if st.session_state["layers"][selected_layer]:
+            entity_idx = st.selectbox(
+                "Sélectionnez une entité à gérer",
+                range(len(st.session_state["layers"][selected_layer])),
+                format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}"
+            )
+            selected_entity = st.session_state["layers"][selected_layer][entity_idx]
+            current_name = selected_entity.get("properties", {}).get("name", "")
+            new_name = st.text_input("Nom de l'entité", current_name)
 
-        if st.button("Modifier le nom", key=f"edit_{entity_idx}"):
-            if "properties" not in selected_entity:
-                selected_entity["properties"] = {}
-            selected_entity["properties"]["name"] = new_name
-            st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
+            if st.button("Modifier le nom", key=f"edit_{entity_idx}"):
+                if "properties" not in selected_entity:
+                    selected_entity["properties"] = {}
+                selected_entity["properties"]["name"] = new_name
+                st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
 
-        if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
-            st.session_state["layers"][selected_layer].pop(entity_idx)
-            st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
+            if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
+                st.session_state["layers"][selected_layer].pop(entity_idx)
+                st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
+        else:
+            st.write("Aucune entité dans cette couche pour le moment.")
     else:
-        st.write("Aucune entité dans cette couche pour le moment.")
+        st.write("Aucune couche disponible pour gérer les entités.")
 
 # Carte de base
 m = folium.Map(location=[5.5, -4.0], zoom_start=8)
@@ -284,10 +290,8 @@ with st.sidebar:
     geojson_type = st.selectbox(
         "Sélectionnez le type de fichier GeoJSON",
         options=[
-            "Polygonale",
             "Routes",
             "Cours d'eau",
-            "Bâtiments",
             "Pistes",
             "Plantations",
             "Électricité",
