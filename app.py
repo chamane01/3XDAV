@@ -330,58 +330,58 @@ with st.sidebar:
                 st.error(f"Erreur lors du chargement du GeoJSON : {e}")
 
     # Liste des couches téléversées
-    with st.sidebar:
-        st.markdown("### Liste des couches téléversées")
-        
-        # Rafraîchir la liste
-        if st.button("Rafraîchir la liste", key="refresh_list"):
-            pass  # Rafraîchir la liste
+    st.markdown("### Liste des couches téléversées")
+    
+    # Rafraîchir la liste
+    if st.button("Rafraîchir la liste", key="refresh_list"):
+        pass  # Rafraîchir la liste
 
-        if st.session_state["uploaded_layers"]:
-            for i, layer in enumerate(st.session_state["uploaded_layers"]):
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.write(f"{i + 1}. {layer['name']} ({layer['type']})")
-                with col2:
-                    # Bouton de suppression en rouge
-                    if st.button(f"Supprimer {layer['name']}", key=f"delete_{i}", type="primary", help="Supprimer cette couche"):
-                        st.session_state["uploaded_layers"].pop(i)
-                        st.success(f"Couche {layer['name']} supprimée.")
-        else:
-            st.write("Aucune couche téléversée pour le moment.")
+    if st.session_state["uploaded_layers"]:
+        for i, layer in enumerate(st.session_state["uploaded_layers"]):
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.write(f"{i + 1}. {layer['name']} ({layer['type']})")
+            with col2:
+                # Utiliser le nom de la couche comme clé pour éviter les doublons
+                if st.button(f"Supprimer {layer['name']}", key=f"delete_{layer['name']}", type="primary", help="Supprimer cette couche"):
+                    st.session_state["uploaded_layers"].pop(i)
+                    st.success(f"Couche {layer['name']} supprimée.")
+                    st.experimental_rerun()  # Rafraîchir l'interface après suppression
+    else:
+        st.write("Aucune couche téléversée pour le moment.")
 
-        # Bouton pour ajouter toutes les couches à la carte
-        if st.button("Ajouter la liste de couches à la carte", key="add_layers_button"):
-            added_layers = set()
-            all_bounds = []  # Pour stocker les limites de toutes les couches
+    # Bouton pour ajouter toutes les couches à la carte
+    if st.button("Ajouter la liste de couches à la carte", key="add_layers_button"):
+        added_layers = set()
+        all_bounds = []  # Pour stocker les limites de toutes les couches
 
-            for layer in st.session_state["uploaded_layers"]:
-                if layer["name"] not in added_layers:
-                    if layer["type"] == "TIFF":
-                        if layer["name"] in ["MNT", "MNS"]:
-                            temp_png_path = f"{layer['name'].lower()}_colored.png"
-                            apply_color_gradient(layer["path"], temp_png_path)
-                            add_image_overlay(m, temp_png_path, layer["bounds"], layer["name"])
-                            os.remove(temp_png_path)
-                        else:
-                            add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
-                        all_bounds.append([[layer["bounds"].bottom, layer["bounds"].left], [layer["bounds"].top, layer["bounds"].right]])
-                    elif layer["type"] == "GeoJSON":
-                        color = geojson_colors.get(layer["name"], "blue")
-                        folium.GeoJson(
-                            layer["data"],
-                            name=layer["name"],
-                            style_function=lambda x, color=color: {
-                                "color": color,
-                                "weight": 4,
-                                "opacity": 0.7
-                            }
-                        ).add_to(m)
-                        geojson_bounds = calculate_geojson_bounds(layer["data"])
-                        all_bounds.append([[geojson_bounds[1], geojson_bounds[0]], [geojson_bounds[3], geojson_bounds[2]]])
-                    added_layers.add(layer["name"])
+        for layer in st.session_state["uploaded_layers"]:
+            if layer["name"] not in added_layers:
+                if layer["type"] == "TIFF":
+                    if layer["name"] in ["MNT", "MNS"]:
+                        temp_png_path = f"{layer['name'].lower()}_colored.png"
+                        apply_color_gradient(layer["path"], temp_png_path)
+                        add_image_overlay(m, temp_png_path, layer["bounds"], layer["name"])
+                        os.remove(temp_png_path)
+                    else:
+                        add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
+                    all_bounds.append([[layer["bounds"].bottom, layer["bounds"].left], [layer["bounds"].top, layer["bounds"].right]])
+                elif layer["type"] == "GeoJSON":
+                    color = geojson_colors.get(layer["name"], "blue")
+                    folium.GeoJson(
+                        layer["data"],
+                        name=layer["name"],
+                        style_function=lambda x, color=color: {
+                            "color": color,
+                            "weight": 4,
+                            "opacity": 0.7
+                        }
+                    ).add_to(m)
+                    geojson_bounds = calculate_geojson_bounds(layer["data"])
+                    all_bounds.append([[geojson_bounds[1], geojson_bounds[0]], [geojson_bounds[3], geojson_bounds[2]]])
+                added_layers.add(layer["name"])
 
-            # Ajuster la vue de la carte pour inclure toutes les limites
-            if all_bounds:
-                m.fit_bounds(all_bounds)
-            st.success("Toutes les couches ont été ajoutées à la carte.")
+        # Ajuster la vue de la carte pour inclure toutes les limites
+        if all_bounds:
+            m.fit_bounds(all_bounds)
+        st.success("Toutes les couches ont été ajoutées à la carte.")
