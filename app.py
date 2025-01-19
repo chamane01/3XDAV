@@ -119,11 +119,14 @@ Créez des entités géographiques (points, lignes, polygones) en les dessinant 
 Vous pouvez également activer ou désactiver des couches grâce au gestionnaire de couches.
 """)
 
+# Carte de base
+m = folium.Map(location=[5.5, -4.0], zoom_start=8)
+
 # Sidebar pour la gestion des couches
 with st.sidebar:
     st.header("Gestion des Couches")
 
-    # Sous-titre 1 : Options de téléversement
+    # Sous-titre 1 : Téléverser des fichiers
     st.subheader("1. Téléverser des fichiers")
     tiff_type = st.selectbox(
         "Sélectionnez le type de fichier TIFF",
@@ -212,6 +215,61 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Erreur lors du chargement du GeoJSON : {e}")
 
+    # Liste des couches téléversées
+    st.markdown("### Liste des couches téléversées")
+    
+    if st.session_state["uploaded_layers"]:
+        for i, layer in enumerate(st.session_state["uploaded_layers"]):
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.write(f"{i + 1}. {layer['name']} ({layer['type']})")
+            with col2:
+                # Bouton de suppression en rouge
+                if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche"):
+                    st.session_state["uploaded_layers"].pop(i)
+                    st.success(f"Couche {layer['name']} supprimée.")
+    else:
+        st.write("Aucune couche téléversée pour le moment.")
+
+    # Bouton pour ajouter toutes les couches à la carte
+    if st.button("Ajouter la liste de couches à la carte", key="add_layers_button"):
+        added_layers = set()
+        all_bounds = []  # Pour stocker les limites de toutes les couches
+
+        for layer in st.session_state["uploaded_layers"]:
+            if layer["name"] not in added_layers:
+                if layer["type"] == "TIFF":
+                    if layer["name"] in ["MNT", "MNS"]:
+                        temp_png_path = f"{layer['name'].lower()}_colored.png"
+                        apply_color_gradient(layer["path"], temp_png_path)
+                        add_image_overlay(m, temp_png_path, layer["bounds"], layer["name"])
+                        os.remove(temp_png_path)
+                    else:
+                        add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
+                    all_bounds.append([[layer["bounds"].bottom, layer["bounds"].left], [layer["bounds"].top, layer["bounds"].right]])
+                elif layer["type"] == "GeoJSON":
+                    color = geojson_colors.get(layer["name"], "blue")
+                    folium.GeoJson(
+                        layer["data"],
+                        name=layer["name"],
+                        style_function=lambda x, color=color: {
+                            "color": color,
+                            "weight": 4,
+                            "opacity": 0.7
+                        }
+                    ).add_to(m)
+                    geojson_bounds = calculate_geojson_bounds(layer["data"])
+                    all_bounds.append([[geojson_bounds[1], geojson_bounds[0]], [geojson_bounds[3], geojson_bounds[2]]])
+                added_layers.add(layer["name"])
+
+        # Ajuster la vue de la carte pour inclure toutes les limites
+        if all_bounds:
+            m.fit_bounds(all_bounds)
+        st.success("Toutes les couches ont été ajoutées à la carte.")
+
+    # Espacement entre les sections
+    st.markdown("---")
+
     # Sous-titre 2 : Ajouter une nouvelle couche
     st.subheader("2. Ajouter une nouvelle couche")
     new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
@@ -272,29 +330,6 @@ with st.sidebar:
     else:
         st.write("Aucune entité dans cette couche pour le moment.")
 
-# Carte de base
-m = folium.Map(location=[5.5, -4.0], zoom_start=8)
-
-# Ajout des couches existantes à la carte
-layer_groups = {}
-for layer, features in st.session_state["layers"].items():
-    layer_groups[layer] = folium.FeatureGroup(name=layer, show=True)
-    for feature in features:
-        feature_type = feature["geometry"]["type"]
-        coordinates = feature["geometry"]["coordinates"]
-        popup = feature.get("properties", {}).get("name", f"{layer} - Entité")
-
-        if feature_type == "Point":
-            lat, lon = coordinates[1], coordinates[0]
-            folium.Marker(location=[lat, lon], popup=popup).add_to(layer_groups[layer])
-        elif feature_type == "LineString":
-            folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color="blue", popup=popup).add_to(layer_groups[layer])
-        elif feature_type == "Polygon":
-            folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True, popup=popup).add_to(layer_groups[layer])
-
-    # Ajout du groupe à la carte
-    layer_groups[layer].add_to(m)
-
 # Gestionnaire de dessin
 draw = Draw(
     draw_options={
@@ -322,69 +357,3 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
     if new_feature not in st.session_state["new_features"]:
         st.session_state["new_features"].append(new_feature)
         st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
-
-# Bouton pour rafraîchir la carte
-if st.button("Rafraîchir la carte", key="refresh_map_button"):
-    st.experimental_rerun()
-
-# Liste des couches téléversées
-with st.sidebar:
-    st.markdown("### Liste des couches téléversées")
-    
-    if st.button("Rafraîchir la liste", key="refresh_list_button"):
-        pass  # Rafraîchir la liste
-
-    if st.session_state["uploaded_layers"]:
-        for i, layer in enumerate(st.session_state["uploaded_layers"]):
-            col1, col2 = st.columns([4, 1])
-            with col1:
-                st.write(f"{i + 1}. {layer['name']} ({layer['type']})")
-            with col2:
-                # Bouton de suppression en rouge
-                if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche"):
-                    st.session_state["uploaded_layers"].pop(i)
-                    st.success(f"Couche {layer['name']} supprimée.")
-    else:
-        st.write("Aucune couche téléversée pour le moment.")
-
-    # Bouton pour ajouter toutes les couches à la carte
-    if st.button("Ajouter la liste de couches à la carte", key="add_layers_button"):
-        added_layers = set()
-        all_bounds = []  # Pour stocker les limites de toutes les couches
-
-        for layer in st.session_state["uploaded_layers"]:
-            if layer["name"] not in added_layers:
-                if layer["type"] == "TIFF":
-                    if layer["name"] in ["MNT", "MNS"]:
-                        temp_png_path = f"{layer['name'].lower()}_colored.png"
-                        apply_color_gradient(layer["path"], temp_png_path)
-                        add_image_overlay(m, temp_png_path, layer["bounds"], layer["name"])
-                        os.remove(temp_png_path)
-                    else:
-                        add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
-                    all_bounds.append([[layer["bounds"].bottom, layer["bounds"].left], [layer["bounds"].top, layer["bounds"].right]])
-                elif layer["type"] == "GeoJSON":
-                    color = geojson_colors.get(layer["name"], "blue")
-                    folium.GeoJson(
-                        layer["data"],
-                        name=layer["name"],
-                        style_function=lambda x, color=color: {
-                            "color": color,
-                            "weight": 4,
-                            "opacity": 0.7
-                        }
-                    ).add_to(m)
-                    geojson_bounds = calculate_geojson_bounds(layer["data"])
-                    all_bounds.append([[geojson_bounds[1], geojson_bounds[0]], [geojson_bounds[3], geojson_bounds[2]]])
-                added_layers.add(layer["name"])
-
-        # Ajuster la vue de la carte pour inclure toutes les limites
-        if all_bounds:
-            m.fit_bounds(all_bounds)
-        st.success("Toutes les couches ont été ajoutées à la carte.")
-
-# Ajout des contrôles de calques
-folium.LayerControl().add_to(m)
-
-# Affichage de la carte
-st_folium(m, width=800, height=600)
