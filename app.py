@@ -273,7 +273,7 @@ with st.sidebar:
     # Espacement entre les sections
     st.markdown("---")
 
-    # Sous-titre 2 : Ajouter une nouvelle couche
+    # Sous-titre 2 : Dessiner des entités
     st.subheader("2. Dessiner des entités")
     new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
     if st.button("Ajouter la couche", key="add_new_layer_button") and new_layer_name:
