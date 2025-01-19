@@ -385,6 +385,3 @@ with st.sidebar:
             if all_bounds:
                 m.fit_bounds(all_bounds)
             st.success("Toutes les couches ont été ajoutées à la carte.")
-
-# Affichage de la carte
-st_folium(m, width=800, height=600)
