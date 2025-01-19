@@ -102,16 +102,13 @@ def calculate_geojson_bounds(geojson_data):
 
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
-    st.session_state["layers"] = {}  # Suppression des couches prédéfinies
+    st.session_state["layers"] = {"Routes": [], "Bâtiments": [], "Polygonale": [], "MNT": [], "MNS": [], "Orthophotos": []}
 
 if "new_features" not in st.session_state:
     st.session_state["new_features"] = []
 
 if "uploaded_layers" not in st.session_state:
     st.session_state["uploaded_layers"] = []
-
-if "common_layers" not in st.session_state:
-    st.session_state["common_layers"] = []  # Liste commune pour les couches à afficher
 
 # Titre de l'application
 st.title("Carte Dynamique avec Gestion Avancée des Couches")
@@ -157,18 +154,18 @@ with st.sidebar:
                     m.location = [center_lat, center_lon]
                     m.zoom_start = 12
 
-                    # Bouton pour ajouter le fichier TIFF à la liste commune
-                    if st.button(f"Ajouter {tiff_type} à la liste commune", key=f"add_tiff_{tiff_type}"):
+                    # Bouton pour ajouter le fichier TIFF à la liste des couches
+                    if st.button(f"Ajouter {tiff_type} à la liste de couches", key=f"add_tiff_{tiff_type}"):
                         # Check if the layer already exists in the list
                         layer_exists = any(
-                            layer["name"] == tiff_type and layer["path"] == reprojected_tiff
-                            for layer in st.session_state["common_layers"]
+                            layer["type"] == "TIFF" and layer["name"] == tiff_type and layer["path"] == reprojected_tiff
+                            for layer in st.session_state["uploaded_layers"]
                         )
 
                         if not layer_exists:
-                            # Store the layer in the common_layers list
-                            st.session_state["common_layers"].append({"type": "TIFF", "name": tiff_type, "path": reprojected_tiff, "bounds": bounds})
-                            st.success(f"Couche {tiff_type} ajoutée à la liste commune.")
+                            # Store the layer in the uploaded_layers list
+                            st.session_state["uploaded_layers"].append({"type": "TIFF", "name": tiff_type, "path": reprojected_tiff, "bounds": bounds})
+                            st.success(f"Couche {tiff_type} ajoutée à la liste des couches.")
                         else:
                             st.warning(f"La couche {tiff_type} existe déjà dans la liste.")
             except Exception as e:
@@ -201,45 +198,45 @@ with st.sidebar:
         if uploaded_geojson:
             try:
                 geojson_data = json.load(uploaded_geojson)
-                # Bouton pour ajouter le fichier GeoJSON à la liste commune
-                if st.button(f"Ajouter {geojson_type} à la liste commune", key=f"add_geojson_{geojson_type}"):
+                # Bouton pour ajouter le fichier GeoJSON à la liste des couches
+                if st.button(f"Ajouter {geojson_type} à la liste de couches", key=f"add_geojson_{geojson_type}"):
                     # Check if the layer already exists in the list
                     layer_exists = any(
-                        layer["name"] == geojson_type and layer["data"] == geojson_data
-                        for layer in st.session_state["common_layers"]
+                        layer["type"] == "GeoJSON" and layer["name"] == geojson_type and layer["data"] == geojson_data
+                        for layer in st.session_state["uploaded_layers"]
                     )
 
                     if not layer_exists:
-                        # Store the layer in the common_layers list
-                        st.session_state["common_layers"].append({"type": "GeoJSON", "name": geojson_type, "data": geojson_data})
-                        st.success(f"Couche {geojson_type} ajoutée à la liste commune.")
+                        # Store the layer in the uploaded_layers list
+                        st.session_state["uploaded_layers"].append({"type": "GeoJSON", "name": geojson_type, "data": geojson_data})
+                        st.success(f"Couche {geojson_type} ajoutée à la liste des couches.")
                     else:
                         st.warning(f"La couche {geojson_type} existe déjà dans la liste.")
             except Exception as e:
                 st.error(f"Erreur lors du chargement du GeoJSON : {e}")
 
-    # Liste des couches communes
-    st.markdown("### Liste des couches communes")
+    # Liste des couches téléversées
+    st.markdown("### Liste des couches téléversées")
     
-    if st.session_state["common_layers"]:
-        for i, layer in enumerate(st.session_state["common_layers"]):
+    if st.session_state["uploaded_layers"]:
+        for i, layer in enumerate(st.session_state["uploaded_layers"]):
             col1, col2 = st.columns([4, 1])
             with col1:
                 st.write(f"{i + 1}. {layer['name']} ({layer['type']})")
             with col2:
                 # Bouton de suppression en rouge
                 if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche"):
-                    st.session_state["common_layers"].pop(i)
+                    st.session_state["uploaded_layers"].pop(i)
                     st.success(f"Couche {layer['name']} supprimée.")
     else:
-        st.write("Aucune couche dans la liste commune pour le moment.")
+        st.write("Aucune couche téléversée pour le moment.")
 
-    # Bouton pour ajouter toutes les couches communes à la carte
+    # Bouton pour ajouter toutes les couches à la carte
     if st.button("Ajouter la liste de couches à la carte", key="add_layers_button"):
         added_layers = set()
         all_bounds = []  # Pour stocker les limites de toutes les couches
 
-        for layer in st.session_state["common_layers"]:
+        for layer in st.session_state["uploaded_layers"]:
             if layer["name"] not in added_layers:
                 if layer["type"] == "TIFF":
                     if layer["name"] in ["MNT", "MNS"]:
@@ -273,8 +270,8 @@ with st.sidebar:
     # Espacement entre les sections
     st.markdown("---")
 
-    # Sous-titre 2 : Dessiner des entités
-    st.subheader("2. Dessiner des entités")
+    # Sous-titre 2 : Ajouter une nouvelle couche
+    st.subheader("2. Ajouter une nouvelle couche")
     new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
     if st.button("Ajouter la couche", key="add_new_layer_button") and new_layer_name:
         if new_layer_name not in st.session_state["layers"]:
@@ -307,43 +304,31 @@ with st.sidebar:
         st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
         st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
 
-    # Bouton pour ajouter les entités dessinées à la liste commune
-    if st.button("Ajouter les entités dessinées à la liste commune", key="add_drawn_features_button"):
-        for feature in st.session_state["new_features"]:
-            st.session_state["common_layers"].append({"type": "Dessin", "name": layer_name, "data": feature})
-        st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
-        st.success(f"Les entités dessinées ont été ajoutées à la liste commune.")
-
     # Suppression et modification d'une entité dans une couche
     st.subheader("Gestion des entités dans les couches")
     selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()), key="selected_layer_selectbox")
+    if st.session_state["layers"][selected_layer]:
+        entity_idx = st.selectbox(
+            "Sélectionnez une entité à gérer",
+            range(len(st.session_state["layers"][selected_layer])),
+            format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}",
+            key="entity_selectbox"
+        )
+        selected_entity = st.session_state["layers"][selected_layer][entity_idx]
+        current_name = selected_entity.get("properties", {}).get("name", "")
+        new_name = st.text_input("Nom de l'entité", current_name, key="entity_name_input")
 
-    # Vérifier si la couche sélectionnée existe
-    if selected_layer in st.session_state["layers"]:
-        if st.session_state["layers"][selected_layer]:
-            entity_idx = st.selectbox(
-                "Sélectionnez une entité à gérer",
-                range(len(st.session_state["layers"][selected_layer])),
-                format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}",
-                key="entity_selectbox"
-            )
-            selected_entity = st.session_state["layers"][selected_layer][entity_idx]
-            current_name = selected_entity.get("properties", {}).get("name", "")
-            new_name = st.text_input("Nom de l'entité", current_name, key="entity_name_input")
+        if st.button("Modifier le nom", key=f"edit_{entity_idx}"):
+            if "properties" not in selected_entity:
+                selected_entity["properties"] = {}
+            selected_entity["properties"]["name"] = new_name
+            st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
 
-            if st.button("Modifier le nom", key=f"edit_{entity_idx}"):
-                if "properties" not in selected_entity:
-                    selected_entity["properties"] = {}
-                selected_entity["properties"]["name"] = new_name
-                st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
-
-            if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
-                st.session_state["layers"][selected_layer].pop(entity_idx)
-                st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
-        else:
-            st.write("Aucune entité dans cette couche pour le moment.")
+        if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
+            st.session_state["layers"][selected_layer].pop(entity_idx)
+            st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
     else:
-        st.write("La couche sélectionnée n'existe pas.")
+        st.write("Aucune entité dans cette couche pour le moment.")
 
 # Gestionnaire de dessin
 draw = Draw(
