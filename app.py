@@ -228,7 +228,8 @@ with st.sidebar:
                 if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche"):
                     st.session_state["uploaded_layers"].pop(i)
                     st.success(f"Couche {layer['name']} supprimée.")
-                    st.experimental_rerun()  # Rafraîchir l'interface après suppression
+                    # Réinitialiser l'état de la session pour rafraîchir l'interface
+                    st.session_state["layer_deleted"] = True
     else:
         st.write("Aucune couche téléversée pour le moment.")
 
@@ -284,7 +285,6 @@ with st.sidebar:
             layer_group.add_to(m)  # Ajouter le groupe à la carte
             
             st.success(f"La couche '{new_layer_name}' a été ajoutée.")
-            st.experimental_rerun()  # Rafraîchir l'interface après ajout
         else:
             st.warning(f"La couche '{new_layer_name}' existe déjà.")
 
@@ -314,7 +314,6 @@ with st.sidebar:
                 current_layer.append(feature)
         st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
         st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
-        st.experimental_rerun()  # Rafraîchir l'interface après enregistrement
 
     # Suppression et modification d'une entité dans une couche
     st.subheader("Gestion des entités dans les couches")
@@ -336,12 +335,10 @@ with st.sidebar:
                     selected_entity["properties"] = {}
                 selected_entity["properties"]["name"] = new_name
                 st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
-                st.experimental_rerun()  # Rafraîchir l'interface après modification
 
             if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
                 st.session_state["layers"][selected_layer].pop(entity_idx)
                 st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
-                st.experimental_rerun()  # Rafraîchir l'interface après suppression
         else:
             st.write("Aucune entité dans cette couche pour le moment.")
     else:
