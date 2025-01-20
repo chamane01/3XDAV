@@ -325,16 +325,6 @@ with st.sidebar:
     # Espacement entre les sections
     st.markdown("---")
 
-
-    # Initialisation des couches et des entités dans la session Streamlit
-if "layers" not in st.session_state:
-    st.session_state["layers"] = {}  # Plus de couches prédéfinies
-if "uploaded_layers" not in st.session_state:
-    st.session_state["uploaded_layers"] = []
-if "new_features" not in st.session_state:
-    st.session_state["new_features"] = []
-    
-
     # Sous-titre 2 : Ajouter une nouvelle couche
     st.subheader("2. Ajouter une nouvelle couche")
     new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
