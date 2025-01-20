@@ -238,19 +238,6 @@ def calculate_geojson_bounds(geojson_data):
     gdf = gpd.GeoDataFrame.from_features(geojson_data)
     return gdf.total_bounds  # Returns [minx, miny, maxx, maxy]
 
-# Initialisation des couches et des entités dans la session Streamlit
-if "layers" not in st.session_state:
-    st.session_state["layers"] = {}  # Plus de couches prédéfinies
-
-if "uploaded_layers" not in st.session_state:
-    st.session_state["uploaded_layers"] = []
-
-if "new_features" not in st.session_state:
-    st.session_state["new_features"] = []
-
-
-
-
 # Sidebar pour la gestion des couches
 with st.sidebar:
     st.header("Gestion des Couches")
