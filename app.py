@@ -267,6 +267,10 @@ for layer in st.session_state["uploaded_layers"]:
             os.remove(temp_png_path)
         else:
             add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
+        
+        # Ajuster la vue de la carte pour inclure l'image TIFF
+        bounds = [[layer["bounds"].bottom, layer["bounds"].left], [layer["bounds"].top, layer["bounds"].right]]
+        m.fit_bounds(bounds)
     elif layer["type"] == "GeoJSON":
         color = geojson_colors.get(layer["name"], "blue")
         folium.GeoJson(
@@ -298,10 +302,4 @@ LayerControl(position="topleft", collapsed=True).add_to(m)
 
 # Affichage interactif de la carte
 output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
-
-# Gestion des nouveaux dessins
-if output and "last_active_drawing" in output and output["last_active_drawing"]:
-    new_feature = output["last_active_drawing"]
-    if new_feature not in st.session_state["new_features"]:
-        st.session_state["new_features"].append(new_feature)
-        st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
+st.write(output)  # Affiche les objets retournés par st_folium pour le débogage
