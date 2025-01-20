@@ -122,6 +122,53 @@ Vous pouvez également activer ou désactiver des couches grâce au gestionnaire
 # Carte de base
 m = folium.Map(location=[5.5, -4.0], zoom_start=8)
 
+# Ajout des couches existantes à la carte
+for layer_name, features in st.session_state["layers"].items():
+    layer_group = folium.FeatureGroup(name=layer_name, show=True)
+    for feature in features:
+        feature_type = feature["geometry"]["type"]
+        coordinates = feature["geometry"]["coordinates"]
+        popup = feature.get("properties", {}).get("name", f"{layer_name} - Entité")
+
+        if feature_type == "Point":
+            lat, lon = coordinates[1], coordinates[0]
+            folium.Marker(location=[lat, lon], popup=popup).add_to(layer_group)
+        elif feature_type == "LineString":
+            folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color="blue", popup=popup).add_to(layer_group)
+        elif feature_type == "Polygon":
+            folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True, popup=popup).add_to(layer_group)
+
+    # Ajout du groupe à la carte
+    layer_group.add_to(m)
+
+# Gestionnaire de dessin
+draw = Draw(
+    draw_options={
+        "polyline": True,
+        "polygon": True,
+        "circle": False,
+        "rectangle": True,
+        "marker": True,
+        "circlemarker": False,
+    },
+    edit_options={"edit": True, "remove": True},
+)
+draw.add_to(m)
+
+# Ajout du gestionnaire de couches en mode plié
+LayerControl(position="topleft", collapsed=True).add_to(m)
+
+# Affichage interactif de la carte
+output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
+
+# Gestion des nouveaux dessins
+if output and "last_active_drawing" in output and output["last_active_drawing"]:
+    new_feature = output["last_active_drawing"]
+    # Ajouter l'entité temporairement si elle n'existe pas déjà
+    if new_feature not in st.session_state["new_features"]:
+        st.session_state["new_features"].append(new_feature)
+        st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
+
 # Sidebar pour la gestion des couches
 with st.sidebar:
     st.header("Gestion des Couches")
@@ -341,31 +388,3 @@ with st.sidebar:
             st.write("Aucune entité dans cette couche pour le moment.")
     else:
         st.write("Aucune couche disponible pour gérer les entités.")
-
-# Gestionnaire de dessin
-draw = Draw(
-    draw_options={
-        "polyline": True,
-        "polygon": True,
-        "circle": False,
-        "rectangle": True,
-        "marker": True,
-        "circlemarker": False,
-    },
-    edit_options={"edit": True, "remove": True},
-)
-draw.add_to(m)
-
-# Ajout du gestionnaire de couches en mode plié
-LayerControl(position="topleft", collapsed=True).add_to(m)
-
-# Affichage interactif de la carte
-output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
-
-# Gestion des nouveaux dessins
-if output and "last_active_drawing" in output and output["last_active_drawing"]:
-    new_feature = output["last_active_drawing"]
-    # Ajouter l'entité temporairement si elle n'existe pas déjà
-    if new_feature not in st.session_state["new_features"]:
-        st.session_state["new_features"].append(new_feature)
-        st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
