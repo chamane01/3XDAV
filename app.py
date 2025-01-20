@@ -18,6 +18,18 @@ from rasterio.warp import calculate_default_transform, reproject
 import matplotlib.pyplot as plt
 import os
 
+
+# Initialisation des couches et des entités dans la session Streamlit
+if "layers" not in st.session_state:
+    st.session_state["layers"] = {}  # Plus de couches prédéfinies
+
+if "uploaded_layers" not in st.session_state:
+    st.session_state["uploaded_layers"] = []
+
+if "new_features" not in st.session_state:
+    st.session_state["new_features"] = []
+
+
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
     "Routes": "orange",
