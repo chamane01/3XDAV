@@ -156,6 +156,22 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
         st.session_state["new_features"].append(new_feature)
         st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
 
+# Dictionnaire des couleurs pour les types de fichiers GeoJSON
+geojson_colors = {
+    "Routes": "orange",
+    "Pistes": "brown",
+    "Plantations": "green",
+    "Bâtiments": "gray",
+    "Électricité": "yellow",
+    "Assainissements": "blue",
+    "Villages": "purple",
+    "Villes": "red",
+    "Chemin de fer": "black",
+    "Parc et réserves": "darkgreen",
+    "Cours d'eau": "lightblue",
+    "Polygonale": "pink"
+}
+
 # Fonction pour reprojeter un fichier TIFF
 def reproject_tiff(input_tiff, target_crs):
     """Reproject a TIFF file to a target CRS."""
@@ -185,25 +201,25 @@ def reproject_tiff(input_tiff, target_crs):
                 )
     return reprojected_tiff
 
-# Fonction pour appliquer un gradient de couleur à un fichier TIFF DEM
+# Fonction pour appliquer un gradient de couleur à un MNT/MNS
 def apply_color_gradient(tiff_path, output_path):
     """Apply a color gradient to the DEM TIFF and save it as a PNG."""
     with rasterio.open(tiff_path) as src:
-        # Lire les données DEM
+        # Read the DEM data
         dem_data = src.read(1)
         
-        # Créer une carte de couleur avec matplotlib
+        # Create a color map using matplotlib
         cmap = plt.get_cmap("terrain")
         norm = plt.Normalize(vmin=dem_data.min(), vmax=dem_data.max())
         
-        # Appliquer la carte de couleur
+        # Apply the colormap
         colored_image = cmap(norm(dem_data))
         
-        # Sauvegarder l'image colorée en PNG
+        # Save the colored image as PNG
         plt.imsave(output_path, colored_image)
         plt.close()
 
-# Fonction pour ajouter une image TIFF en superposition sur la carte
+# Fonction pour ajouter une image TIFF à la carte
 def add_image_overlay(map_object, tiff_path, bounds, name):
     """Add a TIFF image overlay to a Folium map."""
     with rasterio.open(tiff_path) as src:
@@ -220,29 +236,36 @@ def calculate_geojson_bounds(geojson_data):
     """Calculate bounds from a GeoJSON object."""
     geometries = [feature["geometry"] for feature in geojson_data["features"]]
     gdf = gpd.GeoDataFrame.from_features(geojson_data)
-    return gdf.total_bounds  # Retourne [minx, miny, maxx, maxy]
+    return gdf.total_bounds  # Returns [minx, miny, maxx, maxy]
 
-# Dictionnaire des couleurs pour les types de fichiers GeoJSON
-geojson_colors = {
-    "Routes": "orange",
-    "Pistes": "brown",
-    "Plantations": "green",
-    "Bâtiments": "gray",
-    "Électricité": "yellow",
-    "Assainissements": "blue",
-    "Villages": "purple",
-    "Villes": "red",
-    "Chemin de fer": "black",
-    "Parc et réserves": "darkgreen",
-    "Cours d'eau": "lightblue",
-    "Polygonale": "pink"
-}
+# Initialisation des couches et des entités dans la session Streamlit
+if "layers" not in st.session_state:
+    st.session_state["layers"] = {}  # Plus de couches prédéfinies
 
-# Section pour téléverser des fichiers TIFF et GeoJSON
+if "uploaded_layers" not in st.session_state:
+    st.session_state["uploaded_layers"] = []
+
+if "new_features" not in st.session_state:
+    st.session_state["new_features"] = []
+
+# Titre de l'application
+st.title("Carte Dynamique avec Gestion Avancée des Couches")
+
+# Description
+st.markdown("""
+Créez des entités géographiques (points, lignes, polygones) en les dessinant sur la carte et ajoutez-les à des couches spécifiques. 
+Vous pouvez également activer ou désactiver des couches grâce au gestionnaire de couches.
+""")
+
+# Carte de base
+m = folium.Map(location=[5.5, -4.0], zoom_start=8)
+
+# Sidebar pour la gestion des couches
 with st.sidebar:
-    st.header("Téléverser des fichiers")
+    st.header("Gestion des Couches")
 
-    # Téléverser un fichier TIFF
+    # Sous-titre 1 : Téléverser des fichiers
+    st.subheader("1. Téléverser des fichiers")
     tiff_type = st.selectbox(
         "Sélectionnez le type de fichier TIFF",
         options=["MNT", "MNS", "Orthophoto"],
@@ -271,14 +294,14 @@ with st.sidebar:
 
                     # Bouton pour ajouter le fichier TIFF à la liste des couches
                     if st.button(f"Ajouter {tiff_type} à la liste de couches", key=f"add_tiff_{tiff_type}"):
-                        # Vérifier si la couche existe déjà dans la liste
+                        # Check if the layer already exists in the list
                         layer_exists = any(
                             layer["type"] == "TIFF" and layer["name"] == tiff_type and layer["path"] == reprojected_tiff
                             for layer in st.session_state["uploaded_layers"]
                         )
 
                         if not layer_exists:
-                            # Stocker la couche dans la liste uploaded_layers
+                            # Store the layer in the uploaded_layers list
                             st.session_state["uploaded_layers"].append({"type": "TIFF", "name": tiff_type, "path": reprojected_tiff, "bounds": bounds})
                             st.success(f"Couche {tiff_type} ajoutée à la liste des couches.")
                         else:
@@ -286,12 +309,13 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Erreur lors de la reprojection : {e}")
 
-    # Téléverser un fichier GeoJSON
     geojson_type = st.selectbox(
         "Sélectionnez le type de fichier GeoJSON",
         options=[
+            "Polygonale",
             "Routes",
             "Cours d'eau",
+            "Bâtiments",
             "Pistes",
             "Plantations",
             "Électricité",
@@ -314,14 +338,14 @@ with st.sidebar:
                 geojson_data = json.load(uploaded_geojson)
                 # Bouton pour ajouter le fichier GeoJSON à la liste des couches
                 if st.button(f"Ajouter {geojson_type} à la liste de couches", key=f"add_geojson_{geojson_type}"):
-                    # Vérifier si la couche existe déjà dans la liste
+                    # Check if the layer already exists in the list
                     layer_exists = any(
                         layer["type"] == "GeoJSON" and layer["name"] == geojson_type and layer["data"] == geojson_data
                         for layer in st.session_state["uploaded_layers"]
                     )
 
                     if not layer_exists:
-                        # Stocker la couche dans la liste uploaded_layers
+                        # Store the layer in the uploaded_layers list
                         st.session_state["uploaded_layers"].append({"type": "GeoJSON", "name": geojson_type, "data": geojson_data})
                         st.success(f"Couche {geojson_type} ajoutée à la liste des couches.")
                     else:
@@ -332,21 +356,16 @@ with st.sidebar:
     # Liste des couches téléversées
     st.markdown("### Liste des couches téléversées")
     
-    # Rafraîchir la liste
-    if st.button("Rafraîchir la liste", key="refresh_list"):
-        pass  # Rafraîchir la liste
-
     if st.session_state["uploaded_layers"]:
         for i, layer in enumerate(st.session_state["uploaded_layers"]):
             col1, col2 = st.columns([4, 1])
             with col1:
                 st.write(f"{i + 1}. {layer['name']} ({layer['type']})")
             with col2:
-                # Utiliser le nom de la couche comme clé pour éviter les doublons
-                if st.button(f"Supprimer {layer['name']}", key=f"delete_{layer['name']}", type="primary", help="Supprimer cette couche"):
+                # Bouton de suppression en rouge
+                if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche"):
                     st.session_state["uploaded_layers"].pop(i)
                     st.success(f"Couche {layer['name']} supprimée.")
-                    st.experimental_rerun()  # Rafraîchir l'interface après suppression
     else:
         st.write("Aucune couche téléversée pour le moment.")
 
@@ -385,3 +404,6 @@ with st.sidebar:
         if all_bounds:
             m.fit_bounds(all_bounds)
         st.success("Toutes les couches ont été ajoutées à la carte.")
+
+    # Espacement entre les sections
+    st.markdown("---")
