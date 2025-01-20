@@ -37,6 +37,84 @@ Créez des entités géographiques (points, lignes, polygones) en les dessinant 
 Vous pouvez également téléverser des fichiers TIFF ou GeoJSON pour les superposer à la carte.
 """)
 
+# Carte de base
+m = folium.Map(location=[5.5, -4.0], zoom_start=8)
+
+# Fonction pour reprojeter un fichier TIFF
+def reproject_tiff(input_tiff, target_crs):
+    """Reproject a TIFF file to a target CRS."""
+    with rasterio.open(input_tiff) as src:
+        transform, width, height = rasterio.warp.calculate_default_transform(
+            src.crs, target_crs, src.width, src.height, *src.bounds
+        )
+        kwargs = src.meta.copy()
+        kwargs.update({
+            "crs": target_crs,
+            "transform": transform,
+            "width": width,
+            "height": height,
+        })
+
+        reprojected_tiff = "reprojected.tiff"
+        with rasterio.open(reprojected_tiff, "w", **kwargs) as dst:
+            for i in range(1, src.count + 1):
+                rasterio.warp.reproject(
+                    source=rasterio.band(src, i),
+                    destination=rasterio.band(dst, i),
+                    src_transform=src.transform,
+                    src_crs=src.crs,
+                    dst_transform=transform,
+                    dst_crs=target_crs,
+                    resampling=rasterio.warp.Resampling.nearest,
+                )
+    return reprojected_tiff
+
+# Fonction pour appliquer un gradient de couleur à un fichier TIFF DEM
+def apply_color_gradient(tiff_path, output_path):
+    """Apply a color gradient to the DEM TIFF and save it as a PNG."""
+    with rasterio.open(tiff_path) as src:
+        dem_data = src.read(1)
+        cmap = plt.get_cmap("terrain")
+        norm = plt.Normalize(vmin=dem_data.min(), vmax=dem_data.max())
+        colored_image = cmap(norm(dem_data))
+        plt.imsave(output_path, colored_image)
+        plt.close()
+
+# Fonction pour ajouter une image TIFF en superposition sur la carte
+def add_image_overlay(map_object, tiff_path, bounds, name):
+    """Add a TIFF image overlay to a Folium map."""
+    with rasterio.open(tiff_path) as src:
+        image = reshape_as_image(src.read())
+        folium.raster_layers.ImageOverlay(
+            image=image,
+            bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
+            name=name,
+            opacity=0.6,
+        ).add_to(map_object)
+
+# Fonction pour calculer les limites d'un GeoJSON
+def calculate_geojson_bounds(geojson_data):
+    """Calculate bounds from a GeoJSON object."""
+    geometries = [feature["geometry"] for feature in geojson_data["features"]]
+    gdf = gpd.GeoDataFrame.from_features(geojson_data)
+    return gdf.total_bounds  # Retourne [minx, miny, maxx, maxy]
+
+# Dictionnaire des couleurs pour les types de fichiers GeoJSON
+geojson_colors = {
+    "Routes": "orange",
+    "Pistes": "brown",
+    "Plantations": "green",
+    "Bâtiments": "gray",
+    "Électricité": "yellow",
+    "Assainissements": "blue",
+    "Villages": "purple",
+    "Villes": "red",
+    "Chemin de fer": "black",
+    "Parc et réserves": "darkgreen",
+    "Cours d'eau": "lightblue",
+    "Polygonale": "pink"
+}
+
 # Sidebar pour la gestion des couches
 with st.sidebar:
     st.header("Gestion des Couches")
@@ -105,141 +183,7 @@ with st.sidebar:
     else:
         st.write("Aucune couche disponible pour gérer les entités.")
 
-# Carte de base
-m = folium.Map(location=[5.5, -4.0], zoom_start=8)
-
-# Ajout des couches existantes à la carte
-layer_groups = {}
-for layer, features in st.session_state["layers"].items():
-    layer_groups[layer] = folium.FeatureGroup(name=layer, show=True)
-    for feature in features:
-        feature_type = feature["geometry"]["type"]
-        coordinates = feature["geometry"]["coordinates"]
-        popup = feature.get("properties", {}).get("name", f"{layer} - Entité")
-
-        if feature_type == "Point":
-            lat, lon = coordinates[1], coordinates[0]
-            folium.Marker(location=[lat, lon], popup=popup).add_to(layer_groups[layer])
-        elif feature_type == "LineString":
-            folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color="blue", popup=popup).add_to(layer_groups[layer])
-        elif feature_type == "Polygon":
-            folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True, popup=popup).add_to(layer_groups[layer])
-
-    # Ajout du groupe à la carte
-    layer_groups[layer].add_to(m)
-
-# Gestionnaire de dessin
-draw = Draw(
-    draw_options={
-        "polyline": True,
-        "polygon": True,
-        "circle": False,
-        "rectangle": True,
-        "marker": True,
-        "circlemarker": False,
-    },
-    edit_options={"edit": True, "remove": True},
-)
-draw.add_to(m)
-
-# Ajout du gestionnaire de couches en mode plié
-LayerControl(position="topleft", collapsed=True).add_to(m)
-
-# Affichage interactif de la carte
-output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
-
-# Gestion des nouveaux dessins
-if output and "last_active_drawing" in output and output["last_active_drawing"]:
-    new_feature = output["last_active_drawing"]
-    # Ajouter l'entité temporairement si elle n'existe pas déjà
-    if new_feature not in st.session_state["new_features"]:
-        st.session_state["new_features"].append(new_feature)
-        st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
-
-# Fonction pour reprojeter un fichier TIFF
-def reproject_tiff(input_tiff, target_crs):
-    """Reproject a TIFF file to a target CRS."""
-    with rasterio.open(input_tiff) as src:
-        transform, width, height = rasterio.warp.calculate_default_transform(
-            src.crs, target_crs, src.width, src.height, *src.bounds
-        )
-        kwargs = src.meta.copy()
-        kwargs.update({
-            "crs": target_crs,
-            "transform": transform,
-            "width": width,
-            "height": height,
-        })
-
-        reprojected_tiff = "reprojected.tiff"
-        with rasterio.open(reprojected_tiff, "w", **kwargs) as dst:
-            for i in range(1, src.count + 1):
-                rasterio.warp.reproject(
-                    source=rasterio.band(src, i),
-                    destination=rasterio.band(dst, i),
-                    src_transform=src.transform,
-                    src_crs=src.crs,
-                    dst_transform=transform,
-                    dst_crs=target_crs,
-                    resampling=rasterio.warp.Resampling.nearest,
-                )
-    return reprojected_tiff
-
-# Fonction pour appliquer un gradient de couleur à un fichier TIFF DEM
-def apply_color_gradient(tiff_path, output_path):
-    """Apply a color gradient to the DEM TIFF and save it as a PNG."""
-    with rasterio.open(tiff_path) as src:
-        # Lire les données DEM
-        dem_data = src.read(1)
-        
-        # Créer une carte de couleur avec matplotlib
-        cmap = plt.get_cmap("terrain")
-        norm = plt.Normalize(vmin=dem_data.min(), vmax=dem_data.max())
-        
-        # Appliquer la carte de couleur
-        colored_image = cmap(norm(dem_data))
-        
-        # Sauvegarder l'image colorée en PNG
-        plt.imsave(output_path, colored_image)
-        plt.close()
-
-# Fonction pour ajouter une image TIFF en superposition sur la carte
-def add_image_overlay(map_object, tiff_path, bounds, name):
-    """Add a TIFF image overlay to a Folium map."""
-    with rasterio.open(tiff_path) as src:
-        image = reshape_as_image(src.read())
-        folium.raster_layers.ImageOverlay(
-            image=image,
-            bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
-            name=name,
-            opacity=0.6,
-        ).add_to(map_object)
-
-# Fonction pour calculer les limites d'un GeoJSON
-def calculate_geojson_bounds(geojson_data):
-    """Calculate bounds from a GeoJSON object."""
-    geometries = [feature["geometry"] for feature in geojson_data["features"]]
-    gdf = gpd.GeoDataFrame.from_features(geojson_data)
-    return gdf.total_bounds  # Retourne [minx, miny, maxx, maxy]
-
-# Dictionnaire des couleurs pour les types de fichiers GeoJSON
-geojson_colors = {
-    "Routes": "orange",
-    "Pistes": "brown",
-    "Plantations": "green",
-    "Bâtiments": "gray",
-    "Électricité": "yellow",
-    "Assainissements": "blue",
-    "Villages": "purple",
-    "Villes": "red",
-    "Chemin de fer": "black",
-    "Parc et réserves": "darkgreen",
-    "Cours d'eau": "lightblue",
-    "Polygonale": "pink"
-}
-
-# Section pour téléverser des fichiers TIFF et GeoJSON
-with st.sidebar:
+    # Section pour téléverser des fichiers TIFF et GeoJSON
     st.header("Téléverser des fichiers")
 
     # Téléverser un fichier TIFF
@@ -385,3 +329,6 @@ with st.sidebar:
         if all_bounds:
             m.fit_bounds(all_bounds)
         st.success("Toutes les couches ont été ajoutées à la carte.")
+
+# Affichage interactif de la carte
+st_folium(m, width=800, height=600)
