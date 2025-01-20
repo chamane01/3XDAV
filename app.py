@@ -213,9 +213,12 @@ with st.sidebar:
                 reprojected_tiff = reproject_tiff(tiff_path, "EPSG:4326")
                 with rasterio.open(reprojected_tiff) as src:
                     bounds = src.bounds
-                    # Ajouter la couche téléversée à la liste
-                    st.session_state["uploaded_layers"].append({"type": "TIFF", "name": tiff_type, "path": reprojected_tiff, "bounds": bounds})
-                    st.success(f"Couche {tiff_type} ajoutée à la liste des couches.")
+                    # Vérifier si la couche existe déjà
+                    if not any(layer["name"] == tiff_type and layer["type"] == "TIFF" for layer in st.session_state["uploaded_layers"]):
+                        st.session_state["uploaded_layers"].append({"type": "TIFF", "name": tiff_type, "path": reprojected_tiff, "bounds": bounds})
+                        st.success(f"Couche {tiff_type} ajoutée à la liste des couches.")
+                    else:
+                        st.warning(f"La couche {tiff_type} existe déjà.")
             except Exception as e:
                 st.error(f"Erreur lors de la reprojection : {e}")
 
@@ -236,9 +239,12 @@ with st.sidebar:
         if uploaded_geojson:
             try:
                 geojson_data = json.load(uploaded_geojson)
-                # Ajouter la couche téléversée à la liste
-                st.session_state["uploaded_layers"].append({"type": "GeoJSON", "name": geojson_type, "data": geojson_data})
-                st.success(f"Couche {geojson_type} ajoutée à la liste des couches.")
+                # Vérifier si la couche existe déjà
+                if not any(layer["name"] == geojson_type and layer["type"] == "GeoJSON" for layer in st.session_state["uploaded_layers"]):
+                    st.session_state["uploaded_layers"].append({"type": "GeoJSON", "name": geojson_type, "data": geojson_data})
+                    st.success(f"Couche {geojson_type} ajoutée à la liste des couches.")
+                else:
+                    st.warning(f"La couche {geojson_type} existe déjà.")
             except Exception as e:
                 st.error(f"Erreur lors du chargement du GeoJSON : {e}")
 
@@ -252,6 +258,7 @@ with st.sidebar:
             with col2:
                 if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche"):
                     st.session_state["uploaded_layers"].pop(i)
+                    st.session_state["uploaded_layers_added"].discard(layer["name"])  # Retirer de la liste des couches ajoutées
                     st.success(f"Couche {layer['name']} supprimée.")
     else:
         st.write("Aucune couche téléversée pour le moment.")
