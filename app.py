@@ -177,25 +177,8 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
 with st.sidebar:
     st.header("Gestion des Couches")
 
-    # Sous-titre 1 : Ajouter une nouvelle couche
-    st.subheader("1. Ajouter une nouvelle couche")
-    new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
-    if st.button("Ajouter la couche", key="add_new_layer_button") and new_layer_name:
-        if new_layer_name not in st.session_state["layers"]:
-            # Ajouter la nouvelle couche à st.session_state["layers"]
-            st.session_state["layers"][new_layer_name] = []
-            
-            # Créer un nouveau groupe de couches Folium pour la nouvelle couche
-            layer_group = folium.FeatureGroup(name=new_layer_name, show=True)
-            layer_group.add_to(m)  # Ajouter le groupe à la carte
-            
-            st.success(f"La couche '{new_layer_name}' a été ajoutée.")
-            st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
-        else:
-            st.warning(f"La couche '{new_layer_name}' existe déjà.")
-
-    # Sous-titre 2 : Téléverser des fichiers
-    st.subheader("2. Téléverser des fichiers")
+    # Sous-titre 1 : Téléverser des fichiers
+    st.subheader("1. Téléverser des fichiers")
     tiff_type = st.selectbox(
         "Sélectionnez le type de fichier TIFF",
         options=["MNT", "MNS", "Orthophoto"],
@@ -341,6 +324,23 @@ with st.sidebar:
 
     # Espacement entre les sections
     st.markdown("---")
+
+    # Sous-titre 2 : Ajouter une nouvelle couche
+    st.subheader("2. Ajouter une nouvelle couche")
+    new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
+    if st.button("Ajouter la couche", key="add_new_layer_button") and new_layer_name:
+        if new_layer_name not in st.session_state["layers"]:
+            # Ajouter la nouvelle couche à st.session_state["layers"]
+            st.session_state["layers"][new_layer_name] = []
+            
+            # Créer un nouveau groupe de couches Folium pour la nouvelle couche
+            layer_group = folium.FeatureGroup(name=new_layer_name, show=True)
+            layer_group.add_to(m)  # Ajouter le groupe à la carte
+            
+            st.success(f"La couche '{new_layer_name}' a été ajoutée.")
+            st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
+        else:
+            st.warning(f"La couche '{new_layer_name}' existe déjà.")
 
     # Sélection de la couche active pour ajouter les nouvelles entités
     st.subheader("Sélectionner une couche active")
