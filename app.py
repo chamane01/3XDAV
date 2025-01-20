@@ -330,6 +330,7 @@ with st.sidebar:
             layer_group.add_to(m)  # Ajouter le groupe à la carte
             
             st.success(f"La couche '{new_layer_name}' a été ajoutée.")
+            st.experimental_rerun()  # Forcer la mise à jour de la carte
         else:
             st.warning(f"La couche '{new_layer_name}' existe déjà.")
 
@@ -359,6 +360,7 @@ with st.sidebar:
                 current_layer.append(feature)
         st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
         st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
+        st.experimental_rerun()  # Forcer la mise à jour de la carte
 
     # Suppression et modification d'une entité dans une couche
     st.subheader("Gestion des entités dans les couches")
