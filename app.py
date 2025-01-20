@@ -102,13 +102,17 @@ def calculate_geojson_bounds(geojson_data):
 
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
-    st.session_state["layers"] = {}  # Couches permanentes
+    st.session_state["layers"] = {}  # Plus de couches prédéfinies
 
 if "uploaded_layers" not in st.session_state:
-    st.session_state["uploaded_layers"] = []  # Couches téléversées (TIFF/GeoJSON)
+    st.session_state["uploaded_layers"] = []
 
 if "new_features" not in st.session_state:
-    st.session_state["new_features"] = []  # Entités temporaires (dessinées mais non enregistrées)
+    st.session_state["new_features"] = []
+
+# Ajout d'un état intermédiaire pour forcer la mise à jour de la carte
+if "force_update" not in st.session_state:
+    st.session_state["force_update"] = False
 
 # Titre de l'application
 st.title("Carte Dynamique avec Gestion Avancée des Couches")
@@ -120,15 +124,9 @@ Vous pouvez également activer ou désactiver des couches grâce au gestionnaire
 """)
 
 # Carte de base
-if "map" not in st.session_state:
-    st.session_state["map"] = folium.Map(location=[5.5, -4.0], zoom_start=8)
+m = folium.Map(location=[5.5, -4.0], zoom_start=8)
 
-# Groupe de couches temporaires pour les entités dessinées mais non enregistrées
-if "temp_layer_group" not in st.session_state:
-    st.session_state["temp_layer_group"] = folium.FeatureGroup(name="Entités temporaires", show=True)
-st.session_state["temp_layer_group"].add_to(st.session_state["map"])
-
-# Ajout des couches permanentes à la carte
+# Ajout des couches existantes à la carte
 for layer_name, features in st.session_state["layers"].items():
     layer_group = folium.FeatureGroup(name=layer_name, show=True)
     for feature in features:
@@ -145,7 +143,7 @@ for layer_name, features in st.session_state["layers"].items():
             folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True, popup=popup).add_to(layer_group)
 
     # Ajout du groupe à la carte
-    layer_group.add_to(st.session_state["map"])
+    layer_group.add_to(m)
 
 # Gestionnaire de dessin
 draw = Draw(
@@ -159,13 +157,13 @@ draw = Draw(
     },
     edit_options={"edit": True, "remove": True},
 )
-draw.add_to(st.session_state["map"])
+draw.add_to(m)
 
 # Ajout du gestionnaire de couches en mode plié
-LayerControl(position="topleft", collapsed=True).add_to(st.session_state["map"])
+LayerControl(position="topleft", collapsed=True).add_to(m)
 
 # Affichage interactif de la carte
-output = st_folium(st.session_state["map"], width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
+output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
 
 # Gestion des nouveaux dessins
 if output and "last_active_drawing" in output and output["last_active_drawing"]:
@@ -174,19 +172,6 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
     if new_feature not in st.session_state["new_features"]:
         st.session_state["new_features"].append(new_feature)
         st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
-
-        # Ajouter l'entité temporaire au groupe de couches temporaires
-        feature_type = new_feature["geometry"]["type"]
-        coordinates = new_feature["geometry"]["coordinates"]
-        popup = "Entité temporaire"
-
-        if feature_type == "Point":
-            lat, lon = coordinates[1], coordinates[0]
-            folium.Marker(location=[lat, lon], popup=popup).add_to(st.session_state["temp_layer_group"])
-        elif feature_type == "LineString":
-            folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color="blue", popup=popup).add_to(st.session_state["temp_layer_group"])
-        elif feature_type == "Polygon":
-            folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True, popup=popup).add_to(st.session_state["temp_layer_group"])
 
 # Sidebar pour la gestion des couches
 with st.sidebar:
@@ -217,8 +202,8 @@ with st.sidebar:
                     bounds = src.bounds
                     center_lat = (bounds.top + bounds.bottom) / 2
                     center_lon = (bounds.left + bounds.right) / 2
-                    st.session_state["map"].location = [center_lat, center_lon]
-                    st.session_state["map"].zoom_start = 12
+                    m.location = [center_lat, center_lon]
+                    m.zoom_start = 12
 
                     # Bouton pour ajouter le fichier TIFF à la liste des couches
                     if st.button(f"Ajouter {tiff_type} à la liste de couches", key=f"add_tiff_{tiff_type}"):
@@ -232,6 +217,7 @@ with st.sidebar:
                             # Store the layer in the uploaded_layers list
                             st.session_state["uploaded_layers"].append({"type": "TIFF", "name": tiff_type, "path": reprojected_tiff, "bounds": bounds})
                             st.success(f"Couche {tiff_type} ajoutée à la liste des couches.")
+                            st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
                         else:
                             st.warning(f"La couche {tiff_type} existe déjà dans la liste.")
             except Exception as e:
@@ -276,6 +262,7 @@ with st.sidebar:
                         # Store the layer in the uploaded_layers list
                         st.session_state["uploaded_layers"].append({"type": "GeoJSON", "name": geojson_type, "data": geojson_data})
                         st.success(f"Couche {geojson_type} ajoutée à la liste des couches.")
+                        st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
                     else:
                         st.warning(f"La couche {geojson_type} existe déjà dans la liste.")
             except Exception as e:
@@ -294,6 +281,7 @@ with st.sidebar:
                 if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche"):
                     st.session_state["uploaded_layers"].pop(i)
                     st.success(f"Couche {layer['name']} supprimée.")
+                    st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
     else:
         st.write("Aucune couche téléversée pour le moment.")
 
@@ -308,10 +296,10 @@ with st.sidebar:
                     if layer["name"] in ["MNT", "MNS"]:
                         temp_png_path = f"{layer['name'].lower()}_colored.png"
                         apply_color_gradient(layer["path"], temp_png_path)
-                        add_image_overlay(st.session_state["map"], temp_png_path, layer["bounds"], layer["name"])
+                        add_image_overlay(m, temp_png_path, layer["bounds"], layer["name"])
                         os.remove(temp_png_path)
                     else:
-                        add_image_overlay(st.session_state["map"], layer["path"], layer["bounds"], layer["name"])
+                        add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
                     all_bounds.append([[layer["bounds"].bottom, layer["bounds"].left], [layer["bounds"].top, layer["bounds"].right]])
                 elif layer["type"] == "GeoJSON":
                     color = geojson_colors.get(layer["name"], "blue")
@@ -323,15 +311,16 @@ with st.sidebar:
                             "weight": 4,
                             "opacity": 0.7
                         }
-                    ).add_to(st.session_state["map"])
+                    ).add_to(m)
                     geojson_bounds = calculate_geojson_bounds(layer["data"])
                     all_bounds.append([[geojson_bounds[1], geojson_bounds[0]], [geojson_bounds[3], geojson_bounds[2]]])
                 added_layers.add(layer["name"])
 
         # Ajuster la vue de la carte pour inclure toutes les limites
         if all_bounds:
-            st.session_state["map"].fit_bounds(all_bounds)
+            m.fit_bounds(all_bounds)
         st.success("Toutes les couches ont été ajoutées à la carte.")
+        st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
 
     # Espacement entre les sections
     st.markdown("---")
@@ -346,9 +335,10 @@ with st.sidebar:
             
             # Créer un nouveau groupe de couches Folium pour la nouvelle couche
             layer_group = folium.FeatureGroup(name=new_layer_name, show=True)
-            layer_group.add_to(st.session_state["map"])  # Ajouter le groupe à la carte
+            layer_group.add_to(m)  # Ajouter le groupe à la carte
             
             st.success(f"La couche '{new_layer_name}' a été ajoutée.")
+            st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
         else:
             st.warning(f"La couche '{new_layer_name}' existe déjà.")
 
@@ -377,8 +367,8 @@ with st.sidebar:
             if feature not in current_layer:
                 current_layer.append(feature)
         st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
-        st.session_state["temp_layer_group"].clear()  # Supprimer les entités temporaires de la carte
         st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
+        st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
 
     # Suppression et modification d'une entité dans une couche
     st.subheader("Gestion des entités dans les couches")
@@ -404,6 +394,7 @@ with st.sidebar:
             if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
                 st.session_state["layers"][selected_layer].pop(entity_idx)
                 st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
+                st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
         else:
             st.write("Aucune entité dans cette couche pour le moment.")
     else:
