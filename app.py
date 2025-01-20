@@ -248,17 +248,8 @@ if "uploaded_layers" not in st.session_state:
 if "new_features" not in st.session_state:
     st.session_state["new_features"] = []
 
-# Titre de l'application
-st.title("Carte Dynamique avec Gestion Avancée des Couches")
 
-# Description
-st.markdown("""
-Créez des entités géographiques (points, lignes, polygones) en les dessinant sur la carte et ajoutez-les à des couches spécifiques. 
-Vous pouvez également activer ou désactiver des couches grâce au gestionnaire de couches.
-""")
 
-# Carte de base
-m = folium.Map(location=[5.5, -4.0], zoom_start=8)
 
 # Sidebar pour la gestion des couches
 with st.sidebar:
