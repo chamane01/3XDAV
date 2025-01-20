@@ -110,6 +110,10 @@ if "uploaded_layers" not in st.session_state:
 if "new_features" not in st.session_state:
     st.session_state["new_features"] = []
 
+# Ajout d'un état intermédiaire pour forcer la mise à jour de la carte
+if "force_update" not in st.session_state:
+    st.session_state["force_update"] = False
+
 # Titre de l'application
 st.title("Carte Dynamique avec Gestion Avancée des Couches")
 
@@ -213,6 +217,7 @@ with st.sidebar:
                             # Store the layer in the uploaded_layers list
                             st.session_state["uploaded_layers"].append({"type": "TIFF", "name": tiff_type, "path": reprojected_tiff, "bounds": bounds})
                             st.success(f"Couche {tiff_type} ajoutée à la liste des couches.")
+                            st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
                         else:
                             st.warning(f"La couche {tiff_type} existe déjà dans la liste.")
             except Exception as e:
@@ -257,6 +262,7 @@ with st.sidebar:
                         # Store the layer in the uploaded_layers list
                         st.session_state["uploaded_layers"].append({"type": "GeoJSON", "name": geojson_type, "data": geojson_data})
                         st.success(f"Couche {geojson_type} ajoutée à la liste des couches.")
+                        st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
                     else:
                         st.warning(f"La couche {geojson_type} existe déjà dans la liste.")
             except Exception as e:
@@ -275,6 +281,7 @@ with st.sidebar:
                 if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche"):
                     st.session_state["uploaded_layers"].pop(i)
                     st.success(f"Couche {layer['name']} supprimée.")
+                    st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
     else:
         st.write("Aucune couche téléversée pour le moment.")
 
@@ -313,6 +320,7 @@ with st.sidebar:
         if all_bounds:
             m.fit_bounds(all_bounds)
         st.success("Toutes les couches ont été ajoutées à la carte.")
+        st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
 
     # Espacement entre les sections
     st.markdown("---")
@@ -330,7 +338,7 @@ with st.sidebar:
             layer_group.add_to(m)  # Ajouter le groupe à la carte
             
             st.success(f"La couche '{new_layer_name}' a été ajoutée.")
-            st.experimental_rerun()  # Forcer la mise à jour de la carte
+            st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
         else:
             st.warning(f"La couche '{new_layer_name}' existe déjà.")
 
@@ -360,7 +368,7 @@ with st.sidebar:
                 current_layer.append(feature)
         st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
         st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
-        st.experimental_rerun()  # Forcer la mise à jour de la carte
+        st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
 
     # Suppression et modification d'une entité dans une couche
     st.subheader("Gestion des entités dans les couches")
@@ -386,6 +394,7 @@ with st.sidebar:
             if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
                 st.session_state["layers"][selected_layer].pop(entity_idx)
                 st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
+                st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
         else:
             st.write("Aucune entité dans cette couche pour le moment.")
     else:
