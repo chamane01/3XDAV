@@ -275,7 +275,13 @@ with st.sidebar:
     new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
     if st.button("Ajouter la couche", key="add_new_layer_button") and new_layer_name:
         if new_layer_name not in st.session_state["layers"]:
+            # Ajouter la nouvelle couche à st.session_state["layers"]
             st.session_state["layers"][new_layer_name] = []
+            
+            # Créer un nouveau groupe de couches Folium pour la nouvelle couche
+            layer_group = folium.FeatureGroup(name=new_layer_name, show=True)
+            layer_group.add_to(m)  # Ajouter le groupe à la carte
+            
             st.success(f"La couche '{new_layer_name}' a été ajoutée.")
         else:
             st.warning(f"La couche '{new_layer_name}' existe déjà.")
