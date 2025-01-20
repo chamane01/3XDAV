@@ -110,6 +110,10 @@ if "uploaded_layers" not in st.session_state:
 if "new_features" not in st.session_state:
     st.session_state["new_features"] = []
 
+# Ajout d'un état intermédiaire pour forcer la mise à jour de la carte
+if "force_update" not in st.session_state:
+    st.session_state["force_update"] = False
+
 # Titre de l'application
 st.title("Carte Dynamique avec Gestion Avancée des Couches")
 
@@ -121,6 +125,53 @@ Vous pouvez également activer ou désactiver des couches grâce au gestionnaire
 
 # Carte de base
 m = folium.Map(location=[5.5, -4.0], zoom_start=8)
+
+# Ajout des couches existantes à la carte
+for layer_name, features in st.session_state["layers"].items():
+    layer_group = folium.FeatureGroup(name=layer_name, show=True)
+    for feature in features:
+        feature_type = feature["geometry"]["type"]
+        coordinates = feature["geometry"]["coordinates"]
+        popup = feature.get("properties", {}).get("name", f"{layer_name} - Entité")
+
+        if feature_type == "Point":
+            lat, lon = coordinates[1], coordinates[0]
+            folium.Marker(location=[lat, lon], popup=popup).add_to(layer_group)
+        elif feature_type == "LineString":
+            folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color="blue", popup=popup).add_to(layer_group)
+        elif feature_type == "Polygon":
+            folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True, popup=popup).add_to(layer_group)
+
+    # Ajout du groupe à la carte
+    layer_group.add_to(m)
+
+# Gestionnaire de dessin
+draw = Draw(
+    draw_options={
+        "polyline": True,
+        "polygon": True,
+        "circle": False,
+        "rectangle": True,
+        "marker": True,
+        "circlemarker": False,
+    },
+    edit_options={"edit": True, "remove": True},
+)
+draw.add_to(m)
+
+# Ajout du gestionnaire de couches en mode plié
+LayerControl(position="topleft", collapsed=True).add_to(m)
+
+# Affichage interactif de la carte
+output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
+
+# Gestion des nouveaux dessins
+if output and "last_active_drawing" in output and output["last_active_drawing"]:
+    new_feature = output["last_active_drawing"]
+    # Ajouter l'entité temporairement si elle n'existe pas déjà
+    if new_feature not in st.session_state["new_features"]:
+        st.session_state["new_features"].append(new_feature)
+        st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
 
 # Sidebar pour la gestion des couches
 with st.sidebar:
@@ -166,6 +217,7 @@ with st.sidebar:
                             # Store the layer in the uploaded_layers list
                             st.session_state["uploaded_layers"].append({"type": "TIFF", "name": tiff_type, "path": reprojected_tiff, "bounds": bounds})
                             st.success(f"Couche {tiff_type} ajoutée à la liste des couches.")
+                            st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
                         else:
                             st.warning(f"La couche {tiff_type} existe déjà dans la liste.")
             except Exception as e:
@@ -210,6 +262,7 @@ with st.sidebar:
                         # Store the layer in the uploaded_layers list
                         st.session_state["uploaded_layers"].append({"type": "GeoJSON", "name": geojson_type, "data": geojson_data})
                         st.success(f"Couche {geojson_type} ajoutée à la liste des couches.")
+                        st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
                     else:
                         st.warning(f"La couche {geojson_type} existe déjà dans la liste.")
             except Exception as e:
@@ -228,6 +281,7 @@ with st.sidebar:
                 if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche"):
                     st.session_state["uploaded_layers"].pop(i)
                     st.success(f"Couche {layer['name']} supprimée.")
+                    st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
     else:
         st.write("Aucune couche téléversée pour le moment.")
 
@@ -266,6 +320,7 @@ with st.sidebar:
         if all_bounds:
             m.fit_bounds(all_bounds)
         st.success("Toutes les couches ont été ajoutées à la carte.")
+        st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
 
     # Espacement entre les sections
     st.markdown("---")
@@ -275,8 +330,15 @@ with st.sidebar:
     new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
     if st.button("Ajouter la couche", key="add_new_layer_button") and new_layer_name:
         if new_layer_name not in st.session_state["layers"]:
+            # Ajouter la nouvelle couche à st.session_state["layers"]
             st.session_state["layers"][new_layer_name] = []
+            
+            # Créer un nouveau groupe de couches Folium pour la nouvelle couche
+            layer_group = folium.FeatureGroup(name=new_layer_name, show=True)
+            layer_group.add_to(m)  # Ajouter le groupe à la carte
+            
             st.success(f"La couche '{new_layer_name}' a été ajoutée.")
+            st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
         else:
             st.warning(f"La couche '{new_layer_name}' existe déjà.")
 
@@ -306,6 +368,7 @@ with st.sidebar:
                 current_layer.append(feature)
         st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
         st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
+        st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
 
     # Suppression et modification d'une entité dans une couche
     st.subheader("Gestion des entités dans les couches")
@@ -331,35 +394,8 @@ with st.sidebar:
             if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
                 st.session_state["layers"][selected_layer].pop(entity_idx)
                 st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
+                st.session_state["force_update"] = not st.session_state["force_update"]  # Forcer la mise à jour
         else:
             st.write("Aucune entité dans cette couche pour le moment.")
     else:
         st.write("Aucune couche disponible pour gérer les entités.")
-
-# Gestionnaire de dessin
-draw = Draw(
-    draw_options={
-        "polyline": True,
-        "polygon": True,
-        "circle": False,
-        "rectangle": True,
-        "marker": True,
-        "circlemarker": False,
-    },
-    edit_options={"edit": True, "remove": True},
-)
-draw.add_to(m)
-
-# Ajout du gestionnaire de couches en mode plié
-LayerControl(position="topleft", collapsed=True).add_to(m)
-
-# Affichage interactif de la carte
-output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
-
-# Gestion des nouveaux dessins
-if output and "last_active_drawing" in output and output["last_active_drawing"]:
-    new_feature = output["last_active_drawing"]
-    # Ajouter l'entité temporairement si elle n'existe pas déjà
-    if new_feature not in st.session_state["new_features"]:
-        st.session_state["new_features"].append(new_feature)
-        st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
