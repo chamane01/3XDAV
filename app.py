@@ -120,12 +120,13 @@ Vous pouvez également activer ou désactiver des couches grâce au gestionnaire
 """)
 
 # Carte de base
-m = folium.Map(location=[5.5, -4.0], zoom_start=8)
+if "map" not in st.session_state:
+    st.session_state["map"] = folium.Map(location=[5.5, -4.0], zoom_start=8)
 
 # Groupe de couches temporaires pour les entités dessinées mais non enregistrées
 if "temp_layer_group" not in st.session_state:
     st.session_state["temp_layer_group"] = folium.FeatureGroup(name="Entités temporaires", show=True)
-st.session_state["temp_layer_group"].add_to(m)
+st.session_state["temp_layer_group"].add_to(st.session_state["map"])
 
 # Ajout des couches permanentes à la carte
 for layer_name, features in st.session_state["layers"].items():
@@ -144,7 +145,7 @@ for layer_name, features in st.session_state["layers"].items():
             folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True, popup=popup).add_to(layer_group)
 
     # Ajout du groupe à la carte
-    layer_group.add_to(m)
+    layer_group.add_to(st.session_state["map"])
 
 # Gestionnaire de dessin
 draw = Draw(
@@ -158,13 +159,13 @@ draw = Draw(
     },
     edit_options={"edit": True, "remove": True},
 )
-draw.add_to(m)
+draw.add_to(st.session_state["map"])
 
 # Ajout du gestionnaire de couches en mode plié
-LayerControl(position="topleft", collapsed=True).add_to(m)
+LayerControl(position="topleft", collapsed=True).add_to(st.session_state["map"])
 
 # Affichage interactif de la carte
-output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
+output = st_folium(st.session_state["map"], width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
 
 # Gestion des nouveaux dessins
 if output and "last_active_drawing" in output and output["last_active_drawing"]:
@@ -216,8 +217,8 @@ with st.sidebar:
                     bounds = src.bounds
                     center_lat = (bounds.top + bounds.bottom) / 2
                     center_lon = (bounds.left + bounds.right) / 2
-                    m.location = [center_lat, center_lon]
-                    m.zoom_start = 12
+                    st.session_state["map"].location = [center_lat, center_lon]
+                    st.session_state["map"].zoom_start = 12
 
                     # Bouton pour ajouter le fichier TIFF à la liste des couches
                     if st.button(f"Ajouter {tiff_type} à la liste de couches", key=f"add_tiff_{tiff_type}"):
@@ -307,10 +308,10 @@ with st.sidebar:
                     if layer["name"] in ["MNT", "MNS"]:
                         temp_png_path = f"{layer['name'].lower()}_colored.png"
                         apply_color_gradient(layer["path"], temp_png_path)
-                        add_image_overlay(m, temp_png_path, layer["bounds"], layer["name"])
+                        add_image_overlay(st.session_state["map"], temp_png_path, layer["bounds"], layer["name"])
                         os.remove(temp_png_path)
                     else:
-                        add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
+                        add_image_overlay(st.session_state["map"], layer["path"], layer["bounds"], layer["name"])
                     all_bounds.append([[layer["bounds"].bottom, layer["bounds"].left], [layer["bounds"].top, layer["bounds"].right]])
                 elif layer["type"] == "GeoJSON":
                     color = geojson_colors.get(layer["name"], "blue")
@@ -322,14 +323,14 @@ with st.sidebar:
                             "weight": 4,
                             "opacity": 0.7
                         }
-                    ).add_to(m)
+                    ).add_to(st.session_state["map"])
                     geojson_bounds = calculate_geojson_bounds(layer["data"])
                     all_bounds.append([[geojson_bounds[1], geojson_bounds[0]], [geojson_bounds[3], geojson_bounds[2]]])
                 added_layers.add(layer["name"])
 
         # Ajuster la vue de la carte pour inclure toutes les limites
         if all_bounds:
-            m.fit_bounds(all_bounds)
+            st.session_state["map"].fit_bounds(all_bounds)
         st.success("Toutes les couches ont été ajoutées à la carte.")
 
     # Espacement entre les sections
@@ -345,7 +346,7 @@ with st.sidebar:
             
             # Créer un nouveau groupe de couches Folium pour la nouvelle couche
             layer_group = folium.FeatureGroup(name=new_layer_name, show=True)
-            layer_group.add_to(m)  # Ajouter le groupe à la carte
+            layer_group.add_to(st.session_state["map"])  # Ajouter le groupe à la carte
             
             st.success(f"La couche '{new_layer_name}' a été ajoutée.")
         else:
