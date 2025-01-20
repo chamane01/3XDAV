@@ -18,6 +18,22 @@ from rasterio.warp import calculate_default_transform, reproject
 import matplotlib.pyplot as plt
 import os
 
+# Dictionnaire des couleurs pour les types de fichiers GeoJSON
+geojson_colors = {
+    "Routes": "orange",
+    "Pistes": "brown",
+    "Plantations": "green",
+    "Bâtiments": "gray",
+    "Électricité": "yellow",
+    "Assainissements": "blue",
+    "Villages": "purple",
+    "Villes": "red",
+    "Chemin de fer": "black",
+    "Parc et réserves": "darkgreen",
+    "Cours d'eau": "lightblue",
+    "Polygonale": "pink"
+}
+
 # Fonction pour reprojeter un fichier TIFF
 def reproject_tiff(input_tiff, target_crs):
     """Reproject a TIFF file to a target CRS."""
