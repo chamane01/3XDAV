@@ -18,22 +18,6 @@ from rasterio.warp import calculate_default_transform, reproject
 import matplotlib.pyplot as plt
 import os
 
-# Initialisation des couches et des entités dans la session Streamlit
-if "layers" not in st.session_state:
-    st.session_state["layers"] = {}  # Plus de couches prédéfinies
-
-if "uploaded_layers" not in st.session_state:
-    st.session_state["uploaded_layers"] = []
-
-if "new_features" not in st.session_state:
-    st.session_state["new_features"] = []
-
-# Ajout d'un état intermédiaire pour forcer la mise à jour de la carte
-if "force_update" not in st.session_state:
-    st.session_state["force_update"] = False
-
-
-
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
     "Routes": "orange",
@@ -116,6 +100,19 @@ def calculate_geojson_bounds(geojson_data):
     gdf = gpd.GeoDataFrame.from_features(geojson_data)
     return gdf.total_bounds  # Returns [minx, miny, maxx, maxy]
 
+# Initialisation des couches et des entités dans la session Streamlit
+if "layers" not in st.session_state:
+    st.session_state["layers"] = {}  # Plus de couches prédéfinies
+
+if "uploaded_layers" not in st.session_state:
+    st.session_state["uploaded_layers"] = []
+
+if "new_features" not in st.session_state:
+    st.session_state["new_features"] = []
+
+# Ajout d'un état intermédiaire pour forcer la mise à jour de la carte
+if "force_update" not in st.session_state:
+    st.session_state["force_update"] = False
 
 # Titre de l'application
 st.title("Carte Dynamique avec Gestion Avancée des Couches")
