@@ -166,6 +166,8 @@ with st.sidebar:
                             # Store the layer in the uploaded_layers list
                             st.session_state["uploaded_layers"].append({"type": "TIFF", "name": tiff_type, "path": reprojected_tiff, "bounds": bounds})
                             st.success(f"Couche {tiff_type} ajoutée à la liste des couches.")
+                            # Simuler un double clic pour rafraîchir la carte
+                            st.session_state["refresh_map"] = True
                         else:
                             st.warning(f"La couche {tiff_type} existe déjà dans la liste.")
             except Exception as e:
@@ -210,6 +212,8 @@ with st.sidebar:
                         # Store the layer in the uploaded_layers list
                         st.session_state["uploaded_layers"].append({"type": "GeoJSON", "name": geojson_type, "data": geojson_data})
                         st.success(f"Couche {geojson_type} ajoutée à la liste des couches.")
+                        # Simuler un double clic pour rafraîchir la carte
+                        st.session_state["refresh_map"] = True
                     else:
                         st.warning(f"La couche {geojson_type} existe déjà dans la liste.")
             except Exception as e:
@@ -228,8 +232,8 @@ with st.sidebar:
                 if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche"):
                     st.session_state["uploaded_layers"].pop(i)
                     st.success(f"Couche {layer['name']} supprimée.")
-                    # Réinitialiser l'état de la session pour rafraîchir l'interface
-                    st.session_state["layer_deleted"] = True
+                    # Simuler un double clic pour rafraîchir la carte
+                    st.session_state["refresh_map"] = True
     else:
         st.write("Aucune couche téléversée pour le moment.")
 
@@ -268,6 +272,8 @@ with st.sidebar:
         if all_bounds:
             m.fit_bounds(all_bounds)
         st.success("Toutes les couches ont été ajoutées à la carte.")
+        # Simuler un double clic pour rafraîchir la carte
+        st.session_state["refresh_map"] = True
 
     # Espacement entre les sections
     st.markdown("---")
@@ -285,6 +291,8 @@ with st.sidebar:
             layer_group.add_to(m)  # Ajouter le groupe à la carte
             
             st.success(f"La couche '{new_layer_name}' a été ajoutée.")
+            # Simuler un double clic pour rafraîchir la carte
+            st.session_state["refresh_map"] = True
         else:
             st.warning(f"La couche '{new_layer_name}' existe déjà.")
 
@@ -314,6 +322,8 @@ with st.sidebar:
                 current_layer.append(feature)
         st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
         st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
+        # Simuler un double clic pour rafraîchir la carte
+        st.session_state["refresh_map"] = True
 
     # Suppression et modification d'une entité dans une couche
     st.subheader("Gestion des entités dans les couches")
@@ -335,10 +345,14 @@ with st.sidebar:
                     selected_entity["properties"] = {}
                 selected_entity["properties"]["name"] = new_name
                 st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
+                # Simuler un double clic pour rafraîchir la carte
+                st.session_state["refresh_map"] = True
 
             if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
                 st.session_state["layers"][selected_layer].pop(entity_idx)
                 st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
+                # Simuler un double clic pour rafraîchir la carte
+                st.session_state["refresh_map"] = True
         else:
             st.write("Aucune entité dans cette couche pour le moment.")
     else:
@@ -371,3 +385,8 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
     if new_feature not in st.session_state["new_features"]:
         st.session_state["new_features"].append(new_feature)
         st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
+
+# Rafraîchir la carte si nécessaire
+if st.session_state.get("refresh_map", False):
+    st.session_state["refresh_map"] = False
+    st.experimental_rerun()
