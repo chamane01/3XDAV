@@ -153,7 +153,7 @@ with st.sidebar:
             st.write(f"- Entité {idx + 1}: {feature['geometry']['type']}")
 
     # Bouton pour enregistrer les nouvelles entités dans la couche active
-    if st.button("Enregistrer les entités", type="primary") and st.session_state["layers"]:
+    if st.button("Enregistrer les entités", key="save_features_button", type="primary") and st.session_state["layers"]:
         # Ajouter les entités non dupliquées à la couche sélectionnée
         current_layer = st.session_state["layers"][layer_name]
         for feature in st.session_state["new_features"]:
@@ -362,46 +362,69 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
 st.markdown("### Analyse Spatiale")
 col1, col2, col3 = st.columns(3)
 
+# Boutons principaux (verts par défaut, blancs au survol)
 with col1:
-    if st.button("Calculer les volumes"):
+    if st.button("Surfaces et volumes", key="surfaces_volumes"):
         st.write("Fonctionnalité en cours de développement.")
+    if st.button("Carte de contours", key="contours"):
+        st.write("Fonctionnalité en cours de développement.")
+
+with col2:
+    if st.button("Trouver un point", key="trouver_point"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Générer un rapport", key="generer_rapport"):
+        st.write("Fonctionnalité en cours de développement.")
+
+with col3:
+    if st.button("Télécharger la carte", key="telecharger_carte"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Dessin automatique", key="dessin_auto"):
+        st.write("Fonctionnalité en cours de développement.")
+
+# Boutons secondaires (couleur normale)
+col4, col5, col6 = st.columns(3)
+
+with col4:
     if st.button("Détecter les arbres"):
         st.write("Fonctionnalité en cours de développement.")
     if st.button("Tracer des profils"):
         st.write("Fonctionnalité en cours de développement.")
 
-with col2:
-    if st.button("Créer des contours"):
-        st.write("Fonctionnalité en cours de développement.")
+with col5:
     if st.button("Carte d'inondation"):
         st.write("Fonctionnalité en cours de développement.")
-    if st.button("Générer un rapport"):
-        st.write("Fonctionnalité en cours de développement.")
-
-with col3:
-    if st.button("Télécharger la carte"):
-        st.write("Fonctionnalité en cours de développement.")
-    if st.button("Télécharger les fichiers"):
-        st.write("Fonctionnalité en cours de développement.")
-
-# Ajout d'autres boutons pour des analyses spatiales courantes
-st.markdown("### Autres Analyses Spatiales")
-col4, col5, col6 = st.columns(3)
-
-with col4:
     if st.button("Analyse de pente"):
         st.write("Fonctionnalité en cours de développement.")
-    if st.button("Analyse d'aspect"):
+    if st.button("Analyse de distance"):
         st.write("Fonctionnalité en cours de développement.")
 
-with col5:
+with col6:
     if st.button("Analyse de visibilité"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Analyse de superposition"):
         st.write("Fonctionnalité en cours de développement.")
     if st.button("Analyse de densité"):
         st.write("Fonctionnalité en cours de développement.")
 
-with col6:
-    if st.button("Analyse de distance"):
-        st.write("Fonctionnalité en cours de développement.")
-    if st.button("Analyse de superposition"):
-        st.write("Fonctionnalité en cours de développement.")
+# Ajout de CSS personnalisé pour les boutons sous la carte
+st.markdown(
+    """
+    <style>
+    /* Style pour les boutons sous la carte */
+    div.stButton > button:first-child:not([class*="sidebar"]) {
+        background-color: #4CAF50; /* Fond vert par défaut */
+        color: white; /* Texte blanc */
+        border: 2px solid #4CAF50; /* Bordure verte */
+        padding: 10px 24px;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+    }
+    div.stButton > button:first-child:not([class*="sidebar"]):hover {
+        background-color: white; /* Fond blanc au survol */
+        color: #4CAF50; /* Texte vert au survol */
+        border: 2px solid #45a049; /* Bordure vert plus foncé au survol */
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
