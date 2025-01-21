@@ -129,7 +129,7 @@ with st.sidebar:
     # Section 1: Ajout d'une nouvelle couche
     st.markdown("### 1- Ajouter une nouvelle couche")
     new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
-    if st.button("Ajouter la couche", key="add_layer_button", help="Ajouter une nouvelle couche") and new_layer_name:
+    if st.button("Ajouter la couche", key="add_layer_button", help="Ajouter une nouvelle couche", type="primary") and new_layer_name:
         if new_layer_name not in st.session_state["layers"]:
             st.session_state["layers"][new_layer_name] = []
             st.success(f"La couche '{new_layer_name}' a été ajoutée.")
@@ -210,7 +210,7 @@ with st.sidebar:
             with col1:
                 st.write(f"{i + 1}. {layer['name']} ({layer['type']})")
             with col2:
-                if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche"):
+                if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche", type="secondary"):
                     st.session_state["uploaded_layers"].pop(i)
                     st.success(f"Couche {layer['name']} supprimée.")
     else:
