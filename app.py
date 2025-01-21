@@ -153,8 +153,7 @@ with st.sidebar:
             st.write(f"- Entité {idx + 1}: {feature['geometry']['type']}")
 
     # Bouton pour enregistrer les nouvelles entités dans la couche active
-    if st.button("Enregistrer les entités", key="save_features_button", type="primary", help="Enregistrer les entités dans la couche active", 
-                 **{"class": "sidebar-button"}) and st.session_state["layers"]:
+    if st.button("Enregistrer les entités", key="save_features_button", type="primary") and st.session_state["layers"]:
         # Ajouter les entités non dupliquées à la couche sélectionnée
         current_layer = st.session_state["layers"][layer_name]
         for feature in st.session_state["new_features"]:
@@ -412,7 +411,7 @@ st.markdown(
     """
     <style>
     /* Style pour les boutons sous la carte */
-    div.stButton > button:first-child:not(.sidebar-button) {
+    div.stButton > button:first-child:not([class*="sidebar"]) {
         background-color: #4CAF50; /* Fond vert par défaut */
         color: white; /* Texte blanc */
         border: 2px solid #4CAF50; /* Bordure verte */
@@ -420,7 +419,7 @@ st.markdown(
         border-radius: 8px;
         transition: all 0.3s ease;
     }
-    div.stButton > button:first-child:not(.sidebar-button):hover {
+    div.stButton > button:first-child:not([class*="sidebar"]):hover {
         background-color: white; /* Fond blanc au survol */
         color: #4CAF50; /* Texte vert au survol */
         border: 2px solid #45a049; /* Bordure vert plus foncé au survol */
