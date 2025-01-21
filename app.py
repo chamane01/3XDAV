@@ -384,9 +384,6 @@ with col3:
     if st.button("Télécharger les fichiers"):
         st.write("Fonctionnalité en cours de développement.")
 
-# Ajout d'autres boutons pour des analyses spatiales courantes
-st.markdown("### Autres Analyses Spatiales")
-col4, col5, col6 = st.columns(3)
 
 with col4:
     if st.button("Analyse de pente"):
