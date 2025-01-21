@@ -4,15 +4,20 @@ import folium
 from folium.plugins import Draw, MeasureControl
 from folium import LayerControl
 import rasterio
+import rasterio.warp
 from rasterio.plot import reshape_as_image
-from rasterio.merge import merge
+from PIL import Image
+from rasterio.warp import transform_bounds
 import numpy as np
-import matplotlib.pyplot as plt
-from shapely.geometry import LineString
 import geopandas as gpd
-import os
-import uuid
+from shapely.geometry import Polygon, Point, LineString
 import json
+from io import BytesIO
+from rasterio.enums import Resampling
+from rasterio.warp import calculate_default_transform, reproject
+import matplotlib.pyplot as plt
+import os
+import uuid  # Pour générer des identifiants uniques
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -30,46 +35,73 @@ geojson_colors = {
     "Polygonale": "pink"
 }
 
-# Fonction pour charger les rasters en mémoire
-def load_rasters(raster_files):
-    """Charge plusieurs rasters et les fusionne en mémoire."""
-    src_files_to_mosaic = []
-    for file in raster_files:
-        try:
-            src = rasterio.open(file, driver="SRTMHGT")  # Essayez avec le pilote SRTMHGT
-            src_files_to_mosaic.append(src)
-        except rasterio.errors.RasterioIOError as e:
-            st.error(f"Erreur lors de l'ouverture du fichier {file}: {e}")
-            continue
-    
-    if not src_files_to_mosaic:
-        st.error("Aucun fichier raster valide n'a pu être ouvert.")
-        return None, None, None
-    
-    mosaic, out_transform = merge(src_files_to_mosaic)
-    return mosaic, out_transform, src_files_to_mosaic[0].meta
+# Fonction pour reprojeter un fichier TIFF avec un nom unique
+def reproject_tiff(input_tiff, target_crs):
+    """Reproject a TIFF file to a target CRS."""
+    with rasterio.open(input_tiff) as src:
+        transform, width, height = rasterio.warp.calculate_default_transform(
+            src.crs, target_crs, src.width, src.height, *src.bounds
+        )
+        kwargs = src.meta.copy()
+        kwargs.update({
+            "crs": target_crs,
+            "transform": transform,
+            "width": width,
+            "height": height,
+        })
 
-# Fonction pour tracer un profil en long
-def plot_profile(elevation, x1, y1, x2, y2):
-    """Trace un profil en long à partir des données d'élévation."""
-    num_points = 100
-    x_values = np.linspace(x1, x2, num_points)
-    y_values = np.linspace(y1, y2, num_points)
-    profile = [elevation[int(y), int(x)] for x, y in zip(x_values, y_values)]
-    plt.plot(profile)
-    plt.xlabel("Distance")
-    plt.ylabel("Élévation")
-    plt.title("Profil en long")
-    st.pyplot(plt.gcf())
+        # Générer un nom de fichier unique
+        unique_id = str(uuid.uuid4())[:8]  # Utilisation des 8 premiers caractères d'un UUID
+        reprojected_tiff = f"reprojected_{unique_id}.tiff"
+        with rasterio.open(reprojected_tiff, "w", **kwargs) as dst:
+            for i in range(1, src.count + 1):
+                rasterio.warp.reproject(
+                    source=rasterio.band(src, i),
+                    destination=rasterio.band(dst, i),
+                    src_transform=src.transform,
+                    src_crs=src.crs,
+                    dst_transform=transform,
+                    dst_crs=target_crs,
+                    resampling=rasterio.warp.Resampling.nearest,
+                )
+    return reprojected_tiff
 
-# Fonction pour générer une carte d'inondation
-def generate_flood_map(elevation, flood_threshold):
-    """Génère une carte d'inondation à partir des données d'élévation."""
-    flood_map = elevation < flood_threshold
-    plt.imshow(flood_map, cmap="Blues")
-    plt.colorbar(label="Inondation (1 = inondé, 0 = sec)")
-    plt.title("Carte d'inondation")
-    st.pyplot(plt.gcf())
+# Fonction pour appliquer un gradient de couleur à un MNT/MNS
+def apply_color_gradient(tiff_path, output_path):
+    """Apply a color gradient to the DEM TIFF and save it as a PNG."""
+    with rasterio.open(tiff_path) as src:
+        # Read the DEM data
+        dem_data = src.read(1)
+        
+        # Create a color map using matplotlib
+        cmap = plt.get_cmap("terrain")
+        norm = plt.Normalize(vmin=dem_data.min(), vmax=dem_data.max())
+        
+        # Apply the colormap
+        colored_image = cmap(norm(dem_data))
+        
+        # Save the colored image as PNG
+        plt.imsave(output_path, colored_image)
+        plt.close()
+
+# Fonction pour ajouter une image TIFF à la carte
+def add_image_overlay(map_object, tiff_path, bounds, name):
+    """Add a TIFF image overlay to a Folium map."""
+    with rasterio.open(tiff_path) as src:
+        image = reshape_as_image(src.read())
+        folium.raster_layers.ImageOverlay(
+            image=image,
+            bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
+            name=name,
+            opacity=0.6,
+        ).add_to(map_object)
+
+# Fonction pour calculer les limites d'un GeoJSON
+def calculate_geojson_bounds(geojson_data):
+    """Calculate bounds from a GeoJSON object."""
+    geometries = [feature["geometry"] for feature in geojson_data["features"]]
+    gdf = gpd.GeoDataFrame.from_features(geojson_data)
+    return gdf.total_bounds  # Returns [minx, miny, maxx, maxy]
 
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
@@ -325,23 +357,3 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
     if new_feature not in st.session_state["new_features"]:
         st.session_state["new_features"].append(new_feature)
         st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
-
-# Charger les rasters en mémoire (exemple)
-raster_files = [os.path.join("raster_files", file) for file in os.listdir("raster_files") if file.endswith(".hgt")]
-if "elevation_data" not in st.session_state:
-    st.session_state["elevation_data"], st.session_state["transform"], st.session_state["meta"] = load_rasters(raster_files)
-
-# Section pour les analyses spatiales
-st.sidebar.markdown("---")
-st.sidebar.header("Analyses Spatiales")
-
-# Exemple : Tracer un profil en long
-if st.sidebar.button("Tracer un profil en long"):
-    x1, y1 = 100, 200  # Coordonnées de départ
-    x2, y2 = 300, 400  # Coordonnées d'arrivée
-    plot_profile(st.session_state["elevation_data"], x1, y1, x2, y2)
-
-# Exemple : Générer une carte d'inondation
-if st.sidebar.button("Générer une carte d'inondation"):
-    flood_threshold = st.sidebar.slider("Seuil d'inondation (m)", 0, 100, 10)
-    generate_flood_map(st.session_state["elevation_data"], flood_threshold)
