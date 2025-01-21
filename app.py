@@ -395,22 +395,13 @@ with col5:
         st.write("Fonctionnalité en cours de développement.")
     if st.button("Analyse de pente"):
         st.write("Fonctionnalité en cours de développement.")
-
-with col6:
-    if st.button("Analyse d'aspect"):
-        st.write("Fonctionnalité en cours de développement.")
-    if st.button("Analyse de visibilité"):
-        st.write("Fonctionnalité en cours de développement.")
-
-# Ajout d'autres boutons pour des analyses spatiales courantes
-col7, col8 = st.columns(2)
-
-with col7:
-    if st.button("Analyse de densité"):
-        st.write("Fonctionnalité en cours de développement.")
     if st.button("Analyse de distance"):
         st.write("Fonctionnalité en cours de développement.")
 
-with col8:
+with col6:
+    if st.button("Analyse de visibilité"):
+        st.write("Fonctionnalité en cours de développement.")
     if st.button("Analyse de superposition"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Analyse de densité"):
         st.write("Fonctionnalité en cours de développement.")
