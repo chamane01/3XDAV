@@ -399,19 +399,47 @@ st.markdown(
     <style>
     /* Style pour les boutons sous la carte avec la classe 'custom-button' */
     div.stButton > button.custom-button {
-        background-color: #4CAF50; /* Fond vert par défaut */
-        color: white; /* Texte blanc */
-        border: 2px solid #4CAF50; /* Bordure verte */
+        background-color: #4CAF50 !important; /* Fond vert par défaut */
+        color: white !important; /* Texte blanc */
+        border: 2px solid #4CAF50 !important; /* Bordure verte */
         padding: 10px 24px;
         border-radius: 8px;
         transition: all 0.3s ease;
     }
     div.stButton > button.custom-button:hover {
-        background-color: white; /* Fond blanc au survol */
-        color: #4CAF50; /* Texte vert au survol */
-        border: 2px solid #45a049; /* Bordure vert plus foncé au survol */
+        background-color: white !important; /* Fond blanc au survol */
+        color: #4CAF50 !important; /* Texte vert au survol */
+        border: 2px solid #45a049 !important; /* Bordure vert plus foncé au survol */
     }
     </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Ajout de la classe 'custom-button' aux boutons sous la carte
+st.markdown(
+    """
+    <script>
+    // Ajouter la classe 'custom-button' à tous les boutons sous la carte
+    document.querySelectorAll('div.stButton > button').forEach(button => {
+        if (button.textContent.includes("Surfaces et volumes") ||
+            button.textContent.includes("Carte de contours") ||
+            button.textContent.includes("Trouver un point") ||
+            button.textContent.includes("Générer un rapport") ||
+            button.textContent.includes("Télécharger la carte") ||
+            button.textContent.includes("Dessin automatique") ||
+            button.textContent.includes("Détecter les arbres") ||
+            button.textContent.includes("Tracer des profils") ||
+            button.textContent.includes("Carte d'inondation") ||
+            button.textContent.includes("Analyse de pente") ||
+            button.textContent.includes("Analyse de distance") ||
+            button.textContent.includes("Analyse de visibilité") ||
+            button.textContent.includes("Analyse de superposition") ||
+            button.textContent.includes("Analyse de densité")) {
+            button.classList.add('custom-button');
+        }
+    });
+    </script>
     """,
     unsafe_allow_html=True,
 )
