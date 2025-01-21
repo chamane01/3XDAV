@@ -362,43 +362,61 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
 st.markdown("### Analyse Spatiale")
 col1, col2, col3 = st.columns(3)
 
+# Boutons principaux (en vert ou bleu)
 with col1:
+    if st.button("Surfaces et volumes", key="surfaces_volumes", type="primary"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Carte de contours", key="contours", type="primary"):
+        st.write("Fonctionnalité en cours de développement.")
+
+with col2:
+    if st.button("Trouver un point", key="trouver_point", type="primary"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Générer un rapport", key="generer_rapport", type="primary"):
+        st.write("Fonctionnalité en cours de développement.")
+
+with col3:
+    if st.button("Télécharger la carte", key="telecharger_carte", type="primary"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Dessin automatique", key="dessin_auto", type="primary"):
+        st.write("Fonctionnalité en cours de développement.")
+
+# Boutons secondaires (couleur normale)
+col4, col5, col6 = st.columns(3)
+
+with col4:
     if st.button("Calculer les volumes"):
         st.write("Fonctionnalité en cours de développement.")
     if st.button("Détecter les arbres"):
         st.write("Fonctionnalité en cours de développement.")
-    if st.button("Tracer des profils"):
-        st.write("Fonctionnalité en cours de développement.")
 
-with col2:
-    if st.button("Créer des contours"):
+with col5:
+    if st.button("Tracer des profils"):
         st.write("Fonctionnalité en cours de développement.")
     if st.button("Carte d'inondation"):
         st.write("Fonctionnalité en cours de développement.")
-    if st.button("Générer un rapport"):
-        st.write("Fonctionnalité en cours de développement.")
 
-with col3:
-    if st.button("Télécharger la carte"):
-        st.write("Fonctionnalité en cours de développement.")
-    if st.button("Télécharger les fichiers"):
-        st.write("Fonctionnalité en cours de développement.")
-
-
-with col4:
+with col6:
     if st.button("Analyse de pente"):
         st.write("Fonctionnalité en cours de développement.")
     if st.button("Analyse d'aspect"):
         st.write("Fonctionnalité en cours de développement.")
 
-with col5:
+# Ajout d'autres boutons pour des analyses spatiales courantes
+col7, col8, col9 = st.columns(3)
+
+with col7:
     if st.button("Analyse de visibilité"):
         st.write("Fonctionnalité en cours de développement.")
     if st.button("Analyse de densité"):
         st.write("Fonctionnalité en cours de développement.")
 
-with col6:
+with col8:
     if st.button("Analyse de distance"):
         st.write("Fonctionnalité en cours de développement.")
     if st.button("Analyse de superposition"):
+        st.write("Fonctionnalité en cours de développement.")
+
+with col9:
+    if st.button("Télécharger les fichiers"):
         st.write("Fonctionnalité en cours de développement.")
