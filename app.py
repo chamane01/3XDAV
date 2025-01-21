@@ -35,15 +35,10 @@ geojson_colors = {
     "Polygonale": "pink"
 }
 
-# Fonction pour reprojeter un fichier TIFF vers EPSG 4326
-def reproject_tiff(input_tiff, target_crs="EPSG:4326"):
-    """Reproject a TIFF file to a target CRS (default: EPSG 4326)."""
+# Fonction pour reprojeter un fichier TIFF avec un nom unique
+def reproject_tiff(input_tiff, target_crs):
+    """Reproject a TIFF file to a target CRS."""
     with rasterio.open(input_tiff) as src:
-        # Vérifier si le fichier est déjà dans le système de coordonnées cible
-        if src.crs == target_crs:
-            return input_tiff, src.bounds  # Pas besoin de reprojection
-
-        # Calculer la transformation vers le système de coordonnées cible
         transform, width, height = rasterio.warp.calculate_default_transform(
             src.crs, target_crs, src.width, src.height, *src.bounds
         )
@@ -55,8 +50,8 @@ def reproject_tiff(input_tiff, target_crs="EPSG:4326"):
             "height": height,
         })
 
-        # Générer un nom de fichier unique pour le fichier reprojeté
-        unique_id = str(uuid.uuid4())[:8]
+        # Générer un nom de fichier unique
+        unique_id = str(uuid.uuid4())[:8]  # Utilisation des 8 premiers caractères d'un UUID
         reprojected_tiff = f"reprojected_{unique_id}.tiff"
         with rasterio.open(reprojected_tiff, "w", **kwargs) as dst:
             for i in range(1, src.count + 1):
@@ -69,10 +64,7 @@ def reproject_tiff(input_tiff, target_crs="EPSG:4326"):
                     dst_crs=target_crs,
                     resampling=rasterio.warp.Resampling.nearest,
                 )
-
-        # Reprojeter les limites (bounds) vers EPSG 4326
-        bounds = rasterio.warp.transform_bounds(src.crs, target_crs, *src.bounds)
-        return reprojected_tiff, bounds
+    return reprojected_tiff
 
 # Fonction pour appliquer un gradient de couleur à un MNT/MNS
 def apply_color_gradient(tiff_path, output_path):
@@ -99,7 +91,7 @@ def add_image_overlay(map_object, tiff_path, bounds, name):
         image = reshape_as_image(src.read())
         folium.raster_layers.ImageOverlay(
             image=image,
-            bounds=[[bounds[1], bounds[0]], [bounds[3], bounds[2]]],  # [lat_min, lon_min], [lat_max, lon_max]
+            bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
             name=name,
             opacity=0.6,
         ).add_to(map_object)
@@ -122,7 +114,7 @@ if "new_features" not in st.session_state:
     st.session_state["new_features"] = []  # Entités temporairement dessinées
 
 # Titre de l'application
-st.title("Carte Dynamique avec Gestion Avancée des Couches")
+st.title("Carte Topographique - Analyse Spatiale et Facilité d'Utilisation")
 
 # Description
 st.markdown("""
@@ -137,66 +129,15 @@ with st.sidebar:
     # Ajout d'une nouvelle couche par nom
     st.subheader("Ajouter une nouvelle couche")
     new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
-    if st.button("Ajouter la couche") and new_layer_name:
+    if st.button("Ajouter la couche", key="add_layer_button", help="Ajouter une nouvelle couche à la carte"):
         if new_layer_name not in st.session_state["layers"]:
             st.session_state["layers"][new_layer_name] = []
             st.success(f"La couche '{new_layer_name}' a été ajoutée.")
         else:
             st.warning(f"La couche '{new_layer_name}' existe déjà.")
 
-    # Sélection de la couche active pour ajouter les nouvelles entités
-    st.subheader("Sélectionner une couche active")
-    if st.session_state["layers"]:
-        layer_name = st.selectbox(
-            "Choisissez la couche à laquelle ajouter les entités",
-            list(st.session_state["layers"].keys())
-        )
-    else:
-        st.write("Aucune couche disponible. Ajoutez une couche pour commencer.")
-
-    # Affichage des entités temporairement dessinées
-    if st.session_state["new_features"]:
-        st.write(f"**Entités dessinées temporairement ({len(st.session_state['new_features'])}) :**")
-        for idx, feature in enumerate(st.session_state["new_features"]):
-            st.write(f"- Entité {idx + 1}: {feature['geometry']['type']}")
-
-    # Bouton pour enregistrer les nouvelles entités dans la couche active
-    if st.button("Enregistrer les entités") and st.session_state["layers"]:
-        # Ajouter les entités non dupliquées à la couche sélectionnée
-        current_layer = st.session_state["layers"][layer_name]
-        for feature in st.session_state["new_features"]:
-            if feature not in current_layer:
-                current_layer.append(feature)
-        st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
-        st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
-
-    # Suppression et modification d'une entité dans une couche
-    st.subheader("Gestion des entités dans les couches")
-    if st.session_state["layers"]:
-        selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()))
-        if st.session_state["layers"][selected_layer]:
-            entity_idx = st.selectbox(
-                "Sélectionnez une entité à gérer",
-                range(len(st.session_state["layers"][selected_layer])),
-                format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}"
-            )
-            selected_entity = st.session_state["layers"][selected_layer][entity_idx]
-            current_name = selected_entity.get("properties", {}).get("name", "")
-            new_name = st.text_input("Nom de l'entité", current_name)
-
-            if st.button("Modifier le nom", key=f"edit_{entity_idx}"):
-                if "properties" not in selected_entity:
-                    selected_entity["properties"] = {}
-                selected_entity["properties"]["name"] = new_name
-                st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
-
-            if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
-                st.session_state["layers"][selected_layer].pop(entity_idx)
-                st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
-        else:
-            st.write("Aucune entité dans cette couche pour le moment.")
-    else:
-        st.write("Aucune couche disponible pour gérer les entités.")
+    # Espace entre les sections
+    st.markdown("---")
 
     # Téléversement de fichiers TIFF et GeoJSON
     st.subheader("Téléverser des fichiers")
@@ -220,26 +161,15 @@ with st.sidebar:
 
             st.write(f"Reprojection du fichier TIFF ({tiff_type})...")
             try:
-                # Détecter le système de coordonnées du fichier
-                with rasterio.open(tiff_path) as src:
-                    if src.crs not in ["EPSG:4326", "EPSG:32630"]:
-                        st.error("Le fichier TIFF doit être dans le système EPSG 4326 ou EPSG 32630.")
-                    else:
-                        # Reprojeter vers EPSG 4326 si nécessaire
-                        if src.crs == "EPSG:32630":
-                            st.write("Reprojection depuis EPSG 32630 (UTM 30N) vers EPSG 4326...")
-                            reprojected_tiff, bounds = reproject_tiff(tiff_path, "EPSG:4326")
-                        else:
-                            reprojected_tiff, bounds = tiff_path, src.bounds
-
-                        # Ajouter la couche téléversée à la liste
-                        st.session_state["uploaded_layers"].append({
-                            "type": "TIFF",
-                            "name": tiff_type,
-                            "path": reprojected_tiff,
-                            "bounds": bounds
-                        })
+                reprojected_tiff = reproject_tiff(tiff_path, "EPSG:4326")
+                with rasterio.open(reprojected_tiff) as src:
+                    bounds = src.bounds
+                    # Vérifier si la couche existe déjà
+                    if not any(layer["name"] == tiff_type and layer["type"] == "TIFF" for layer in st.session_state["uploaded_layers"]):
+                        st.session_state["uploaded_layers"].append({"type": "TIFF", "name": tiff_type, "path": reprojected_tiff, "bounds": bounds})
                         st.success(f"Couche {tiff_type} ajoutée à la liste des couches.")
+                    else:
+                        st.warning(f"La couche {tiff_type} existe déjà.")
             except Exception as e:
                 st.error(f"Erreur lors de la reprojection : {e}")
             finally:
@@ -280,7 +210,7 @@ with st.sidebar:
             with col1:
                 st.write(f"{i + 1}. {layer['name']} ({layer['type']})")
             with col2:
-                if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche"):
+                if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche", type="primary", style={"background-color": "red"}):
                     st.session_state["uploaded_layers"].pop(i)
                     st.success(f"Couche {layer['name']} supprimée.")
     else:
@@ -320,7 +250,7 @@ for layer in st.session_state["uploaded_layers"]:
             add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
         
         # Ajuster la vue de la carte pour inclure l'image TIFF
-        bounds = [[layer["bounds"][1], layer["bounds"][0]], [layer["bounds"][3], layer["bounds"][2]]]
+        bounds = [[layer["bounds"].bottom, layer["bounds"].left], [layer["bounds"].top, layer["bounds"].right]]
         m.fit_bounds(bounds)
     elif layer["type"] == "GeoJSON":
         color = geojson_colors.get(layer["name"], "blue")
