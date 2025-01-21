@@ -1,7 +1,8 @@
 import streamlit as st
 from streamlit_folium import st_folium
 import folium
-from folium.plugins import Draw, MeasureControl, LayerControl
+from folium.plugins import Draw, MeasureControl
+from folium import LayerControl  # Correction ici
 import rasterio
 import rasterio.warp
 from rasterio.plot import reshape_as_image
