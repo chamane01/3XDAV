@@ -136,11 +136,8 @@ with st.sidebar:
         else:
             st.warning(f"La couche '{new_layer_name}' existe déjà.")
 
-    # Démarcation claire
-    st.markdown("---")
-
-    # Section 2: Sélection de la couche active
-    st.markdown("### Sélectionner une couche active")
+    # Sélection de la couche active pour ajouter les nouvelles entités
+    st.markdown("#### Sélectionner une couche active")
     if st.session_state["layers"]:
         layer_name = st.selectbox(
             "Choisissez la couche à laquelle ajouter les entités",
@@ -165,11 +162,8 @@ with st.sidebar:
         st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
         st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
 
-    # Démarcation claire
-    st.markdown("---")
-
-    # Section 3: Gestion des entités dans les couches
-    st.markdown("### Gestion des entités dans les couches")
+    # Gestion des entités dans les couches
+    st.markdown("#### Gestion des entités dans les couches")
     if st.session_state["layers"]:
         selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()))
         if st.session_state["layers"][selected_layer]:
@@ -196,10 +190,10 @@ with st.sidebar:
     else:
         st.write("Aucune couche disponible pour gérer les entités.")
 
-    # Démarcation claire
+    # Démarcation claire entre 1- et 2-
     st.markdown("---")
 
-    # Section 4: Téléversement de fichiers
+    # Section 2: Téléversement de fichiers
     st.markdown("### 2- Téléverser des fichiers")
     tiff_type = st.selectbox(
         "Sélectionnez le type de fichier TIFF",
