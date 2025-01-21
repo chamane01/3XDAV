@@ -1,8 +1,7 @@
 import streamlit as st
 from streamlit_folium import st_folium
 import folium
-from folium.plugins import Draw, MeasureControl
-from folium import LayerControl
+from folium.plugins import Draw, MeasureControl, LayerControl
 import rasterio
 import rasterio.warp
 from rasterio.plot import reshape_as_image
@@ -125,15 +124,6 @@ Vous pouvez également téléverser des fichiers TIFF ou GeoJSON pour les superp
 # Sidebar pour la gestion des couches
 with st.sidebar:
     st.header("Gestion des Couches")
-
-    # Sélection du fond de carte
-    st.markdown("### Fond de carte")
-    basemap = st.selectbox(
-        "Choisissez un fond de carte",
-        options=["OpenStreetMap", "Satellite", "Topographique"],
-        index=0,  # OSM par défaut
-        key="basemap_selectbox"
-    )
 
     # Section 1: Ajout d'une nouvelle couche
     st.markdown("### 1- Ajouter une nouvelle couche")
@@ -283,20 +273,17 @@ with st.sidebar:
 m = folium.Map(location=[5.5, -4.0], zoom_start=8)
 
 # Ajout des fonds de carte
-if basemap == "OpenStreetMap":
-    folium.TileLayer("OpenStreetMap").add_to(m)
-elif basemap == "Satellite":
-    folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri",
-        name="Satellite",
-    ).add_to(m)
-elif basemap == "Topographique":
-    folium.TileLayer(
-        tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-        attr="OpenTopoMap",
-        name="Topographique",
-    ).add_to(m)
+folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
+folium.TileLayer(
+    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attr="Esri",
+    name="Satellite",
+).add_to(m)
+folium.TileLayer(
+    tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    attr="OpenTopoMap",
+    name="Topographique",
+).add_to(m)
 
 # Ajout des couches créées à la carte
 for layer, features in st.session_state["layers"].items():
@@ -357,7 +344,7 @@ draw = Draw(
 )
 draw.add_to(m)
 
-# Ajout du gestionnaire de couches en mode plié
+# Ajout du contrôle des couches pour basculer entre les fonds de carte
 LayerControl(position="topleft", collapsed=True).add_to(m)
 
 # Affichage interactif de la carte
