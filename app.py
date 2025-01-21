@@ -271,7 +271,20 @@ with st.sidebar:
         st.write("Aucune couche téléversée pour le moment.")
 
 # Carte de base
-m = folium.Map(location=[5.5, -4.0], zoom_start=8)
+m = folium.Map(location=[7.5399, -5.5471], zoom_start=6)  # Centré sur la Côte d'Ivoire avec un zoom adapté
+
+# Ajout des fonds de carte
+folium.TileLayer(
+    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attr="Esri",
+    name="Satellite",
+).add_to(m)
+
+folium.TileLayer(
+    tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    attr="OpenTopoMap",
+    name="Topographique",
+).add_to(m)  # Carte topographique ajoutée en dernier pour être la carte par défaut
 
 # Ajout des couches créées à la carte
 for layer, features in st.session_state["layers"].items():
@@ -332,7 +345,7 @@ draw = Draw(
 )
 draw.add_to(m)
 
-# Ajout du gestionnaire de couches en mode plié
+# Ajout du contrôle des couches pour basculer entre les fonds de carte
 LayerControl(position="topleft", collapsed=True).add_to(m)
 
 # Affichage interactif de la carte
@@ -349,97 +362,46 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
 st.markdown("### Analyse Spatiale")
 col1, col2, col3 = st.columns(3)
 
-# Boutons principaux (verts par défaut, blancs au survol)
 with col1:
-    if st.button("Surfaces et volumes", key="surfaces_volumes", help="Calculer les surfaces et volumes"):
+    if st.button("Calculer les volumes"):
         st.write("Fonctionnalité en cours de développement.")
-    if st.button("Carte de contours", key="contours", help="Générer une carte de contours"):
+    if st.button("Détecter les arbres"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Tracer des profils"):
         st.write("Fonctionnalité en cours de développement.")
 
 with col2:
-    if st.button("Trouver un point", key="trouver_point", help="Localiser un point spécifique"):
+    if st.button("Créer des contours"):
         st.write("Fonctionnalité en cours de développement.")
-    if st.button("Générer un rapport", key="generer_rapport", help="Générer un rapport d'analyse"):
+    if st.button("Carte d'inondation"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Générer un rapport"):
         st.write("Fonctionnalité en cours de développement.")
 
 with col3:
-    if st.button("Télécharger la carte", key="telecharger_carte", help="Télécharger la carte actuelle"):
+    if st.button("Télécharger la carte"):
         st.write("Fonctionnalité en cours de développement.")
-    if st.button("Dessin automatique", key="dessin_auto", help="Dessiner des entités automatiquement"):
+    if st.button("Télécharger les fichiers"):
         st.write("Fonctionnalité en cours de développement.")
 
-# Boutons secondaires (couleur normale)
+# Ajout d'autres boutons pour des analyses spatiales courantes
+st.markdown("### Autres Analyses Spatiales")
 col4, col5, col6 = st.columns(3)
 
 with col4:
-    if st.button("Détecter les arbres", key="detecter_arbres", help="Détecter les arbres sur la carte"):
+    if st.button("Analyse de pente"):
         st.write("Fonctionnalité en cours de développement.")
-    if st.button("Tracer des profils", key="tracer_profils", help="Tracer des profils topographiques"):
+    if st.button("Analyse d'aspect"):
         st.write("Fonctionnalité en cours de développement.")
 
 with col5:
-    if st.button("Carte d'inondation", key="carte_inondation", help="Générer une carte d'inondation"):
+    if st.button("Analyse de visibilité"):
         st.write("Fonctionnalité en cours de développement.")
-    if st.button("Analyse de pente", key="analyse_pente", help="Analyser les pentes"):
-        st.write("Fonctionnalité en cours de développement.")
-    if st.button("Analyse de distance", key="analyse_distance", help="Analyser les distances"):
+    if st.button("Analyse de densité"):
         st.write("Fonctionnalité en cours de développement.")
 
 with col6:
-    if st.button("Analyse de visibilité", key="analyse_visibilite", help="Analyser la visibilité"):
+    if st.button("Analyse de distance"):
         st.write("Fonctionnalité en cours de développement.")
-    if st.button("Analyse de superposition", key="analyse_superposition", help="Analyser les superpositions"):
+    if st.button("Analyse de superposition"):
         st.write("Fonctionnalité en cours de développement.")
-    if st.button("Analyse de densité", key="analyse_densite", help="Analyser la densité"):
-        st.write("Fonctionnalité en cours de développement.")
-
-# Ajout de CSS personnalisé pour les boutons sous la carte
-st.markdown(
-    """
-    <style>
-    /* Style pour les boutons sous la carte avec la classe 'custom-button' */
-    div.stButton > button.custom-button {
-        background-color: #4CAF50 !important; /* Fond vert par défaut */
-        color: white !important; /* Texte blanc */
-        border: 2px solid #4CAF50 !important; /* Bordure verte */
-        padding: 10px 24px;
-        border-radius: 8px;
-        transition: all 0.3s ease;
-    }
-    div.stButton > button.custom-button:hover {
-        background-color: white !important; /* Fond blanc au survol */
-        color: #4CAF50 !important; /* Texte vert au survol */
-        border: 2px solid #45a049 !important; /* Bordure vert plus foncé au survol */
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# Ajout de la classe 'custom-button' aux boutons sous la carte
-st.markdown(
-    """
-    <script>
-    // Ajouter la classe 'custom-button' à tous les boutons sous la carte
-    document.querySelectorAll('div.stButton > button').forEach(button => {
-        if (button.textContent.includes("Surfaces et volumes") ||
-            button.textContent.includes("Carte de contours") ||
-            button.textContent.includes("Trouver un point") ||
-            button.textContent.includes("Générer un rapport") ||
-            button.textContent.includes("Télécharger la carte") ||
-            button.textContent.includes("Dessin automatique") ||
-            button.textContent.includes("Détecter les arbres") ||
-            button.textContent.includes("Tracer des profils") ||
-            button.textContent.includes("Carte d'inondation") ||
-            button.textContent.includes("Analyse de pente") ||
-            button.textContent.includes("Analyse de distance") ||
-            button.textContent.includes("Analyse de visibilité") ||
-            button.textContent.includes("Analyse de superposition") ||
-            button.textContent.includes("Analyse de densité")) {
-            button.classList.add('custom-button');
-        }
-    });
-    </script>
-    """,
-    unsafe_allow_html=True,
-)
