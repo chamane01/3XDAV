@@ -12,6 +12,7 @@ from shapely.geometry import LineString
 import geopandas as gpd
 import os
 import uuid
+import json
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -34,8 +35,17 @@ def load_rasters(raster_files):
     """Charge plusieurs rasters et les fusionne en mémoire."""
     src_files_to_mosaic = []
     for file in raster_files:
-        src = rasterio.open(file)
-        src_files_to_mosaic.append(src)
+        try:
+            src = rasterio.open(file, driver="SRTMHGT")  # Essayez avec le pilote SRTMHGT
+            src_files_to_mosaic.append(src)
+        except rasterio.errors.RasterioIOError as e:
+            st.error(f"Erreur lors de l'ouverture du fichier {file}: {e}")
+            continue
+    
+    if not src_files_to_mosaic:
+        st.error("Aucun fichier raster valide n'a pu être ouvert.")
+        return None, None, None
+    
     mosaic, out_transform = merge(src_files_to_mosaic)
     return mosaic, out_transform, src_files_to_mosaic[0].meta
 
@@ -317,7 +327,7 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
         st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
 
 # Charger les rasters en mémoire (exemple)
-raster_files = ["raster1.tif", "raster2.tif", "raster3.tif"]  # Remplacez par vos fichiers
+raster_files = [os.path.join("raster_files", file) for file in os.listdir("raster_files") if file.endswith(".hgt")]
 if "elevation_data" not in st.session_state:
     st.session_state["elevation_data"], st.session_state["transform"], st.session_state["meta"] = load_rasters(raster_files)
 
