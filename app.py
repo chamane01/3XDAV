@@ -17,6 +17,7 @@ from rasterio.enums import Resampling
 from rasterio.warp import calculate_default_transform, reproject
 import matplotlib.pyplot as plt
 import os
+import uuid  # Pour générer des identifiants uniques
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -34,7 +35,7 @@ geojson_colors = {
     "Polygonale": "pink"
 }
 
-# Fonction pour reprojeter un fichier TIFF
+# Fonction pour reprojeter un fichier TIFF avec un nom unique
 def reproject_tiff(input_tiff, target_crs):
     """Reproject a TIFF file to a target CRS."""
     with rasterio.open(input_tiff) as src:
@@ -49,7 +50,9 @@ def reproject_tiff(input_tiff, target_crs):
             "height": height,
         })
 
-        reprojected_tiff = "reprojected.tiff"
+        # Générer un nom de fichier unique
+        unique_id = str(uuid.uuid4())[:8]  # Utilisation des 8 premiers caractères d'un UUID
+        reprojected_tiff = f"reprojected_{unique_id}.tiff"
         with rasterio.open(reprojected_tiff, "w", **kwargs) as dst:
             for i in range(1, src.count + 1):
                 rasterio.warp.reproject(
@@ -201,7 +204,9 @@ with st.sidebar:
         uploaded_tiff = st.file_uploader(f"Téléverser un fichier TIFF ({tiff_type})", type=["tif", "tiff"], key="tiff_uploader")
 
         if uploaded_tiff:
-            tiff_path = uploaded_tiff.name
+            # Générer un nom de fichier unique pour le fichier téléversé
+            unique_id = str(uuid.uuid4())[:8]
+            tiff_path = f"uploaded_{unique_id}.tiff"
             with open(tiff_path, "wb") as f:
                 f.write(uploaded_tiff.read())
 
@@ -218,6 +223,9 @@ with st.sidebar:
                         st.warning(f"La couche {tiff_type} existe déjà.")
             except Exception as e:
                 st.error(f"Erreur lors de la reprojection : {e}")
+            finally:
+                # Supprimer le fichier temporaire après utilisation
+                os.remove(tiff_path)
 
     geojson_type = st.selectbox(
         "Sélectionnez le type de fichier GeoJSON",
@@ -283,10 +291,12 @@ for layer, features in st.session_state["layers"].items():
 for layer in st.session_state["uploaded_layers"]:
     if layer["type"] == "TIFF":
         if layer["name"] in ["MNT", "MNS"]:
-            temp_png_path = f"{layer['name'].lower()}_colored.png"
+            # Générer un nom de fichier unique pour l'image colorée
+            unique_id = str(uuid.uuid4())[:8]
+            temp_png_path = f"{layer['name'].lower()}_colored_{unique_id}.png"
             apply_color_gradient(layer["path"], temp_png_path)
             add_image_overlay(m, temp_png_path, layer["bounds"], layer["name"])
-            os.remove(temp_png_path)
+            os.remove(temp_png_path)  # Supprimer le fichier PNG temporaire
         else:
             add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
         
