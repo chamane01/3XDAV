@@ -2,7 +2,7 @@ import streamlit as st
 from streamlit_folium import st_folium
 import folium
 from folium.plugins import Draw, MeasureControl
-from folium import LayerControl  # Correction ici
+from folium import LayerControl
 import rasterio
 import rasterio.warp
 from rasterio.plot import reshape_as_image
@@ -271,19 +271,19 @@ with st.sidebar:
         st.write("Aucune couche téléversée pour le moment.")
 
 # Carte de base
-m = folium.Map(location=[5.5, -4.0], zoom_start=5)
+m = folium.Map(location=[7.5399, -5.5471], zoom_start=7)  # Centré sur la Côte d'Ivoire avec un zoom adapté
 
 # Ajout des fonds de carte
-folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
-folium.TileLayer(
-    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attr="Esri",
-    name="Satellite",
-).add_to(m)
 folium.TileLayer(
     tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
     attr="OpenTopoMap",
     name="Topographique",
+).add_to(m)  # Carte topographique par défaut
+
+folium.TileLayer(
+    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attr="Esri",
+    name="Satellite",
 ).add_to(m)
 
 # Ajout des couches créées à la carte
