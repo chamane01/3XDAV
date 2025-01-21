@@ -139,7 +139,67 @@ with st.sidebar:
     # Démarcation claire
     st.markdown("---")
 
-    # Section 2: Téléversement de fichiers
+    # Section 2: Sélection de la couche active
+    st.markdown("### Sélectionner une couche active")
+    if st.session_state["layers"]:
+        layer_name = st.selectbox(
+            "Choisissez la couche à laquelle ajouter les entités",
+            list(st.session_state["layers"].keys())
+        )
+    else:
+        st.write("Aucune couche disponible. Ajoutez une couche pour commencer.")
+
+    # Affichage des entités temporairement dessinées
+    if st.session_state["new_features"]:
+        st.write(f"**Entités dessinées temporairement ({len(st.session_state['new_features'])}) :**")
+        for idx, feature in enumerate(st.session_state["new_features"]):
+            st.write(f"- Entité {idx + 1}: {feature['geometry']['type']}")
+
+    # Bouton pour enregistrer les nouvelles entités dans la couche active
+    if st.button("Enregistrer les entités", type="primary") and st.session_state["layers"]:
+        # Ajouter les entités non dupliquées à la couche sélectionnée
+        current_layer = st.session_state["layers"][layer_name]
+        for feature in st.session_state["new_features"]:
+            if feature not in current_layer:
+                current_layer.append(feature)
+        st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
+        st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
+
+    # Démarcation claire
+    st.markdown("---")
+
+    # Section 3: Gestion des entités dans les couches
+    st.markdown("### Gestion des entités dans les couches")
+    if st.session_state["layers"]:
+        selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()))
+        if st.session_state["layers"][selected_layer]:
+            entity_idx = st.selectbox(
+                "Sélectionnez une entité à gérer",
+                range(len(st.session_state["layers"][selected_layer])),
+                format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}"
+            )
+            selected_entity = st.session_state["layers"][selected_layer][entity_idx]
+            current_name = selected_entity.get("properties", {}).get("name", "")
+            new_name = st.text_input("Nom de l'entité", current_name)
+
+            if st.button("Modifier le nom", key=f"edit_{entity_idx}", type="primary"):
+                if "properties" not in selected_entity:
+                    selected_entity["properties"] = {}
+                selected_entity["properties"]["name"] = new_name
+                st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
+
+            if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}", type="secondary"):
+                st.session_state["layers"][selected_layer].pop(entity_idx)
+                st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
+        else:
+            st.write("Aucune entité dans cette couche pour le moment.")
+    else:
+        st.write("Aucune couche disponible pour gérer les entités.")
+
+    # Démarcation claire
+    st.markdown("---")
+
+    # Section 4: Téléversement de fichiers
     st.markdown("### 2- Téléverser des fichiers")
     tiff_type = st.selectbox(
         "Sélectionnez le type de fichier TIFF",
