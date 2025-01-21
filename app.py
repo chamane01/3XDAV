@@ -35,10 +35,15 @@ geojson_colors = {
     "Polygonale": "pink"
 }
 
-# Fonction pour reprojeter un fichier TIFF avec un nom unique
-def reproject_tiff(input_tiff, target_crs):
-    """Reproject a TIFF file to a target CRS."""
+# Fonction pour reprojeter un fichier TIFF vers EPSG 4326
+def reproject_tiff(input_tiff, target_crs="EPSG:4326"):
+    """Reproject a TIFF file to a target CRS (default: EPSG 4326)."""
     with rasterio.open(input_tiff) as src:
+        # Vérifier si le fichier est déjà dans le système de coordonnées cible
+        if src.crs == target_crs:
+            return input_tiff  # Pas besoin de reprojection
+
+        # Calculer la transformation vers le système de coordonnées cible
         transform, width, height = rasterio.warp.calculate_default_transform(
             src.crs, target_crs, src.width, src.height, *src.bounds
         )
@@ -50,8 +55,8 @@ def reproject_tiff(input_tiff, target_crs):
             "height": height,
         })
 
-        # Générer un nom de fichier unique
-        unique_id = str(uuid.uuid4())[:8]  # Utilisation des 8 premiers caractères d'un UUID
+        # Générer un nom de fichier unique pour le fichier reprojeté
+        unique_id = str(uuid.uuid4())[:8]
         reprojected_tiff = f"reprojected_{unique_id}.tiff"
         with rasterio.open(reprojected_tiff, "w", **kwargs) as dst:
             for i in range(1, src.count + 1):
@@ -212,15 +217,23 @@ with st.sidebar:
 
             st.write(f"Reprojection du fichier TIFF ({tiff_type})...")
             try:
-                reprojected_tiff = reproject_tiff(tiff_path, "EPSG:4326")
-                with rasterio.open(reprojected_tiff) as src:
-                    bounds = src.bounds
-                    # Vérifier si la couche existe déjà
-                    if not any(layer["name"] == tiff_type and layer["type"] == "TIFF" for layer in st.session_state["uploaded_layers"]):
-                        st.session_state["uploaded_layers"].append({"type": "TIFF", "name": tiff_type, "path": reprojected_tiff, "bounds": bounds})
-                        st.success(f"Couche {tiff_type} ajoutée à la liste des couches.")
+                # Détecter le système de coordonnées du fichier
+                with rasterio.open(tiff_path) as src:
+                    if src.crs not in ["EPSG:4326", "EPSG:32630"]:
+                        st.error("Le fichier TIFF doit être dans le système EPSG 4326 ou EPSG 32630.")
                     else:
-                        st.warning(f"La couche {tiff_type} existe déjà.")
+                        # Reprojeter vers EPSG 4326 si nécessaire
+                        if src.crs == "EPSG:32630":
+                            st.write("Reprojection depuis EPSG 32630 vers EPSG 4326...")
+                            reprojected_tiff = reproject_tiff(tiff_path, "EPSG:4326")
+                        else:
+                            reprojected_tiff = tiff_path
+
+                        # Ajouter la couche téléversée à la liste
+                        with rasterio.open(reprojected_tiff) as src:
+                            bounds = src.bounds
+                            st.session_state["uploaded_layers"].append({"type": "TIFF", "name": tiff_type, "path": reprojected_tiff, "bounds": bounds})
+                            st.success(f"Couche {tiff_type} ajoutée à la liste des couches.")
             except Exception as e:
                 st.error(f"Erreur lors de la reprojection : {e}")
             finally:
