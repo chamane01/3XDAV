@@ -357,3 +357,51 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
     if new_feature not in st.session_state["new_features"]:
         st.session_state["new_features"].append(new_feature)
         st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
+
+# Ajout des boutons pour les analyses spatiales
+st.markdown("### Analyse Spatiale")
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    if st.button("Calculer les volumes"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Détecter les arbres"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Tracer des profils"):
+        st.write("Fonctionnalité en cours de développement.")
+
+with col2:
+    if st.button("Créer des contours"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Carte d'inondation"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Générer un rapport"):
+        st.write("Fonctionnalité en cours de développement.")
+
+with col3:
+    if st.button("Télécharger la carte"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Télécharger les fichiers"):
+        st.write("Fonctionnalité en cours de développement.")
+
+# Ajout d'autres boutons pour des analyses spatiales courantes
+st.markdown("### Autres Analyses Spatiales")
+col4, col5, col6 = st.columns(3)
+
+with col4:
+    if st.button("Analyse de pente"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Analyse d'aspect"):
+        st.write("Fonctionnalité en cours de développement.")
+
+with col5:
+    if st.button("Analyse de visibilité"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Analyse de densité"):
+        st.write("Fonctionnalité en cours de développement.")
+
+with col6:
+    if st.button("Analyse de distance"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Analyse de superposition"):
+        st.write("Fonctionnalité en cours de développement.")
