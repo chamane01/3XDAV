@@ -136,22 +136,6 @@ with st.sidebar:
         else:
             st.warning(f"La couche '{new_layer_name}' existe déjà.")
 
-    # Sélection de la couche active pour ajouter les nouvelles entités
-    st.markdown("#### Sélectionner une couche active")
-    if st.session_state["layers"]:
-        layer_name = st.selectbox(
-            "Choisissez la couche à laquelle ajouter les entités",
-            list(st.session_state["layers"].keys())
-        )
-    else:
-        st.write("Aucune couche disponible. Ajoutez une couche pour commencer.")
-
-    # Affichage des entités temporairement dessinées
-    if st.session_state["new_features"]:
-        st.write(f"**Entités dessinées temporairement ({len(st.session_state['new_features'])}) :**")
-        for idx, feature in enumerate(st.session_state["new_features"]):
-            st.write(f"- Entité {idx + 1}: {feature['geometry']['type']}")
-
     # Gestion des entités dans les couches
     st.markdown("#### Gestion des entités dans les couches")
     if st.session_state["layers"]:
@@ -349,9 +333,14 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
         st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
 
 # Section pour enregistrer les entités sous la carte
-st.markdown("---")  # Démarcation
-st.markdown("### Enregistrer les entités")
-st.write("Sélectionnez une couche active dans la sidebar pour enregistrer les entités dessinées.")
+st.markdown("### Sélectionner une couche active")
+if st.session_state["layers"]:
+    layer_name = st.selectbox(
+        "Choisissez la couche à laquelle ajouter les entités",
+        list(st.session_state["layers"].keys())
+    )
+else:
+    st.write("Aucune couche disponible. Ajoutez une couche pour commencer.")
 
 # Bouton pour enregistrer les nouvelles entités dans la couche active
 if st.button("Enregistrer les entités", key="save_features_button_main", type="primary") and st.session_state["layers"]:
@@ -364,7 +353,6 @@ if st.button("Enregistrer les entités", key="save_features_button_main", type="
     st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
 
 # Section "Analyse Spatiale"
-st.markdown("---")  # Démarcation
 st.markdown("### Analyse Spatiale")
 col1, col2, col3 = st.columns(3)
 
