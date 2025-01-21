@@ -129,7 +129,7 @@ with st.sidebar:
     # Section 1: Ajout d'une nouvelle couche
     st.markdown("### 1- Ajouter une nouvelle couche")
     new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
-    if st.button("Ajouter la couche", key="add_layer_button", help="Ajouter une nouvelle couche", type="primary") and new_layer_name:
+    if st.button("Ajouter la couche", key="add_layer_button", help="Ajouter une nouvelle couche"):
         if new_layer_name not in st.session_state["layers"]:
             st.session_state["layers"][new_layer_name] = []
             st.success(f"La couche '{new_layer_name}' a été ajoutée.")
@@ -153,7 +153,7 @@ with st.sidebar:
             st.write(f"- Entité {idx + 1}: {feature['geometry']['type']}")
 
     # Bouton pour enregistrer les nouvelles entités dans la couche active
-    if st.button("Enregistrer les entités", type="primary") and st.session_state["layers"]:
+    if st.button("Enregistrer les entités") and st.session_state["layers"]:
         # Ajouter les entités non dupliquées à la couche sélectionnée
         current_layer = st.session_state["layers"][layer_name]
         for feature in st.session_state["new_features"]:
@@ -176,13 +176,13 @@ with st.sidebar:
             current_name = selected_entity.get("properties", {}).get("name", "")
             new_name = st.text_input("Nom de l'entité", current_name)
 
-            if st.button("Modifier le nom", key=f"edit_{entity_idx}", type="primary"):
+            if st.button("Modifier le nom", key=f"edit_{entity_idx}"):
                 if "properties" not in selected_entity:
                     selected_entity["properties"] = {}
                 selected_entity["properties"]["name"] = new_name
                 st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
 
-            if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}", type="secondary"):
+            if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}"):
                 st.session_state["layers"][selected_layer].pop(entity_idx)
                 st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
         else:
@@ -264,7 +264,7 @@ with st.sidebar:
             with col1:
                 st.write(f"{i + 1}. {layer['name']} ({layer['type']})")
             with col2:
-                if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche", type="secondary"):
+                if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche"):
                     st.session_state["uploaded_layers"].pop(i)
                     st.success(f"Couche {layer['name']} supprimée.")
     else:
@@ -362,23 +362,23 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
 st.markdown("### Analyse Spatiale")
 col1, col2, col3 = st.columns(3)
 
-# Boutons principaux (en vert ou bleu)
+# Boutons principaux (contours colorés)
 with col1:
-    if st.button("Surfaces et volumes", key="surfaces_volumes", type="primary"):
+    if st.button("Surfaces et volumes", key="surfaces_volumes"):
         st.write("Fonctionnalité en cours de développement.")
-    if st.button("Carte de contours", key="contours", type="primary"):
+    if st.button("Carte de contours", key="contours"):
         st.write("Fonctionnalité en cours de développement.")
 
 with col2:
-    if st.button("Trouver un point", key="trouver_point", type="primary"):
+    if st.button("Trouver un point", key="trouver_point"):
         st.write("Fonctionnalité en cours de développement.")
-    if st.button("Générer un rapport", key="generer_rapport", type="primary"):
+    if st.button("Générer un rapport", key="generer_rapport"):
         st.write("Fonctionnalité en cours de développement.")
 
 with col3:
-    if st.button("Télécharger la carte", key="telecharger_carte", type="primary"):
+    if st.button("Télécharger la carte", key="telecharger_carte"):
         st.write("Fonctionnalité en cours de développement.")
-    if st.button("Dessin automatique", key="dessin_auto", type="primary"):
+    if st.button("Dessin automatique", key="dessin_auto"):
         st.write("Fonctionnalité en cours de développement.")
 
 # Boutons secondaires (couleur normale)
@@ -405,3 +405,24 @@ with col6:
         st.write("Fonctionnalité en cours de développement.")
     if st.button("Analyse de densité"):
         st.write("Fonctionnalité en cours de développement.")
+
+# Ajout de CSS personnalisé pour les contours des boutons principaux
+st.markdown(
+    """
+    <style>
+    div.stButton > button:first-child {
+        border: 2px solid #4CAF50; /* Couleur de la bordure */
+        color: #4CAF50; /* Couleur du texte */
+        background-color: white; /* Fond blanc */
+        padding: 10px 24px;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+    }
+    div.stButton > button:first-child:hover {
+        background-color: #4CAF50; /* Fond vert au survol */
+        color: white; /* Texte blanc au survol */
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
