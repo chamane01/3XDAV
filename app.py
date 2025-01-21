@@ -41,7 +41,7 @@ def reproject_tiff(input_tiff, target_crs="EPSG:4326"):
     with rasterio.open(input_tiff) as src:
         # Vérifier si le fichier est déjà dans le système de coordonnées cible
         if src.crs == target_crs:
-            return input_tiff  # Pas besoin de reprojection
+            return input_tiff, src.bounds  # Pas besoin de reprojection
 
         # Calculer la transformation vers le système de coordonnées cible
         transform, width, height = rasterio.warp.calculate_default_transform(
@@ -69,7 +69,10 @@ def reproject_tiff(input_tiff, target_crs="EPSG:4326"):
                     dst_crs=target_crs,
                     resampling=rasterio.warp.Resampling.nearest,
                 )
-    return reprojected_tiff
+
+        # Reprojeter les limites (bounds) vers EPSG 4326
+        bounds = rasterio.warp.transform_bounds(src.crs, target_crs, *src.bounds)
+        return reprojected_tiff, bounds
 
 # Fonction pour appliquer un gradient de couleur à un MNT/MNS
 def apply_color_gradient(tiff_path, output_path):
@@ -96,7 +99,7 @@ def add_image_overlay(map_object, tiff_path, bounds, name):
         image = reshape_as_image(src.read())
         folium.raster_layers.ImageOverlay(
             image=image,
-            bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
+            bounds=[[bounds[1], bounds[0]], [bounds[3], bounds[2]]],  # [lat_min, lon_min], [lat_max, lon_max]
             name=name,
             opacity=0.6,
         ).add_to(map_object)
@@ -224,16 +227,19 @@ with st.sidebar:
                     else:
                         # Reprojeter vers EPSG 4326 si nécessaire
                         if src.crs == "EPSG:32630":
-                            st.write("Reprojection depuis EPSG 32630 vers EPSG 4326...")
-                            reprojected_tiff = reproject_tiff(tiff_path, "EPSG:4326")
+                            st.write("Reprojection depuis EPSG 32630 (UTM 30N) vers EPSG 4326...")
+                            reprojected_tiff, bounds = reproject_tiff(tiff_path, "EPSG:4326")
                         else:
-                            reprojected_tiff = tiff_path
+                            reprojected_tiff, bounds = tiff_path, src.bounds
 
                         # Ajouter la couche téléversée à la liste
-                        with rasterio.open(reprojected_tiff) as src:
-                            bounds = src.bounds
-                            st.session_state["uploaded_layers"].append({"type": "TIFF", "name": tiff_type, "path": reprojected_tiff, "bounds": bounds})
-                            st.success(f"Couche {tiff_type} ajoutée à la liste des couches.")
+                        st.session_state["uploaded_layers"].append({
+                            "type": "TIFF",
+                            "name": tiff_type,
+                            "path": reprojected_tiff,
+                            "bounds": bounds
+                        })
+                        st.success(f"Couche {tiff_type} ajoutée à la liste des couches.")
             except Exception as e:
                 st.error(f"Erreur lors de la reprojection : {e}")
             finally:
@@ -314,7 +320,7 @@ for layer in st.session_state["uploaded_layers"]:
             add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
         
         # Ajuster la vue de la carte pour inclure l'image TIFF
-        bounds = [[layer["bounds"].bottom, layer["bounds"].left], [layer["bounds"].top, layer["bounds"].right]]
+        bounds = [[layer["bounds"][1], layer["bounds"][0]], [layer["bounds"][3], layer["bounds"][2]]]
         m.fit_bounds(bounds)
     elif layer["type"] == "GeoJSON":
         color = geojson_colors.get(layer["name"], "blue")
