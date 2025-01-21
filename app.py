@@ -345,5 +345,73 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
         st.session_state["new_features"].append(new_feature)
         st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
 
+# Ajout des boutons pour les analyses spatiales
+st.markdown("### Analyse Spatiale")
+col1, col2, col3 = st.columns(3)
 
+# Boutons principaux (verts par défaut, blancs au survol)
+with col1:
+    if st.button("Surfaces et volumes", key="surfaces_volumes", help="Calculer les surfaces et volumes"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Carte de contours", key="contours", help="Générer une carte de contours"):
+        st.write("Fonctionnalité en cours de développement.")
 
+with col2:
+    if st.button("Trouver un point", key="trouver_point", help="Localiser un point spécifique"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Générer un rapport", key="generer_rapport", help="Générer un rapport d'analyse"):
+        st.write("Fonctionnalité en cours de développement.")
+
+with col3:
+    if st.button("Télécharger la carte", key="telecharger_carte", help="Télécharger la carte actuelle"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Dessin automatique", key="dessin_auto", help="Dessiner des entités automatiquement"):
+        st.write("Fonctionnalité en cours de développement.")
+
+# Boutons secondaires (couleur normale)
+col4, col5, col6 = st.columns(3)
+
+with col4:
+    if st.button("Détecter les arbres", key="detecter_arbres", help="Détecter les arbres sur la carte"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Tracer des profils", key="tracer_profils", help="Tracer des profils topographiques"):
+        st.write("Fonctionnalité en cours de développement.")
+
+with col5:
+    if st.button("Carte d'inondation", key="carte_inondation", help="Générer une carte d'inondation"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Analyse de pente", key="analyse_pente", help="Analyser les pentes"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Analyse de distance", key="analyse_distance", help="Analyser les distances"):
+        st.write("Fonctionnalité en cours de développement.")
+
+with col6:
+    if st.button("Analyse de visibilité", key="analyse_visibilite", help="Analyser la visibilité"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Analyse de superposition", key="analyse_superposition", help="Analyser les superpositions"):
+        st.write("Fonctionnalité en cours de développement.")
+    if st.button("Analyse de densité", key="analyse_densite", help="Analyser la densité"):
+        st.write("Fonctionnalité en cours de développement.")
+
+# Ajout de CSS personnalisé pour les boutons sous la carte
+st.markdown(
+    """
+    <style>
+    /* Style pour les boutons sous la carte avec la classe 'custom-button' */
+    div.stButton > button.custom-button {
+        background-color: #4CAF50; /* Fond vert par défaut */
+        color: white; /* Texte blanc */
+        border: 2px solid #4CAF50; /* Bordure verte */
+        padding: 10px 24px;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+    }
+    div.stButton > button.custom-button:hover {
+        background-color: white; /* Fond blanc au survol */
+        color: #4CAF50; /* Texte vert au survol */
+        border: 2px solid #45a049; /* Bordure vert plus foncé au survol */
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
