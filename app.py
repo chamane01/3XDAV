@@ -352,6 +352,9 @@ if st.button("Enregistrer les entités", key="save_features_button_main", type="
     st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
     st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
 
+# Démarcation avant la section "Analyse Spatiale"
+st.markdown("---")
+
 # Section "Analyse Spatiale"
 st.markdown("### Analyse Spatiale")
 col1, col2, col3 = st.columns(3)
