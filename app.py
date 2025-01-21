@@ -271,7 +271,7 @@ with st.sidebar:
         st.write("Aucune couche téléversée pour le moment.")
 
 # Carte de base
-m = folium.Map(location=[5.5, -4.0], zoom_start=8)
+m = folium.Map(location=[5.5, -4.0], zoom_start=7)
 
 # Ajout des fonds de carte
 folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
