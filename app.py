@@ -18,6 +18,7 @@ from rasterio.warp import calculate_default_transform, reproject
 import matplotlib.pyplot as plt
 import os
 import uuid  # Pour générer des identifiants uniques
+from skimage import measure  # Pour la génération de contours
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -102,6 +103,57 @@ def calculate_geojson_bounds(geojson_data):
     geometries = [feature["geometry"] for feature in geojson_data["features"]]
     gdf = gpd.GeoDataFrame.from_features(geojson_data)
     return gdf.total_bounds  # Returns [minx, miny, maxx, maxy]
+
+# Fonction pour générer les contours à partir du MNT
+def generate_contours(map_object):
+    # Vérifier si un MNT est téléversé
+    mnt_layer = next((layer for layer in st.session_state["uploaded_layers"] if layer["name"] == "MNT"), None)
+    
+    if not mnt_layer:
+        st.error("Aucun MNT téléversé. Veuillez téléverser un MNT pour générer les contours.")
+        return
+
+    # Charger le MNT
+    try:
+        with rasterio.open(mnt_layer["path"]) as src:
+            dem_data = src.read(1)
+            transform = src.transform
+            bounds = src.bounds
+
+        # Calculer les contours
+        contours = measure.find_contours(dem_data, level=0)  # Vous pouvez ajuster le niveau de contour ici
+
+        # Convertir les contours en LineString et les ajouter à la carte
+        contour_layer = folium.FeatureGroup(name="Contours", show=True)
+        
+        for contour in contours:
+            # Convertir les coordonnées des contours en coordonnées géographiques
+            coords = [transform * (x, y) for y, x in contour]
+            line = LineString(coords)
+            
+            # Ajouter le contour à la couche
+            folium.PolyLine(
+                locations=[(lat, lon) for lon, lat in line.coords],
+                color="black",
+                weight=1,
+                opacity=0.7,
+            ).add_to(contour_layer)
+
+        # Ajouter la couche de contours à la carte
+        contour_layer.add_to(map_object)
+
+        # Ajuster l'emprise de la carte en fonction du zoom et de l'emprise du MNT
+        current_bounds = map_object.get_bounds()
+        mnt_bounds = [[bounds.bottom, bounds.left], [bounds.top, bounds.right]]
+
+        if map_object.zoom < 10:  # Exemple de seuil de zoom
+            map_object.fit_bounds(mnt_bounds)
+        else:
+            map_object.fit_bounds(current_bounds)
+
+        st.success("Les contours ont été générés et ajoutés à la carte.")
+    except Exception as e:
+        st.error(f"Erreur lors de la génération des contours : {e}")
 
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
@@ -367,7 +419,7 @@ with col1:
     if st.button("Surfaces et volumes", key="surfaces_volumes"):
         st.write("Fonctionnalité en cours de développement.")
     if st.button("Carte de contours", key="contours"):
-        st.write("Fonctionnalité en cours de développement.")
+        generate_contours(m)  # Appel de la fonction pour générer les contours
 
 with col2:
     if st.button("Trouver un point", key="trouver_point"):
