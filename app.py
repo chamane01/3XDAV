@@ -414,7 +414,7 @@ st.markdown(
     div.stButton > button:first-child:not([class*="sidebar"]) {
         background-color: #4CAF50; /* Fond vert par défaut */
         color: white; /* Texte blanc */
-        border: 2px solid #4CAF50; /* Bordure verte */a
+        border: 2px solid #4CAF50; /* Bordure verte */
         padding: 10px 24px;
         border-radius: 8px;
         transition: all 0.3s ease;
@@ -428,3 +428,48 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# Initialisation de l'état de session pour le bouton actif
+if 'active_button' not in st.session_state:
+    st.session_state['active_button'] = None
+
+# Fonction pour afficher les paramètres en fonction du bouton cliqué
+def display_parameters(button_name):
+    if button_name == "Surfaces et volumes":
+        st.write("Menu pour Surfaces et volumes")
+        # Ajoutez ici les widgets ou les informations spécifiques à "Surfaces et volumes"
+    elif button_name == "Carte de contours":
+        st.write("Menu pour Carte de contours")
+        # Ajoutez ici les widgets ou les informations spécifiques à "Carte de contours"
+    # Ajoutez des conditions similaires pour les autres boutons
+
+# Ajout des boutons pour les analyses spatiales
+st.markdown("### Analyse Spatiale")
+col1, col2, col3 = st.columns(3)
+
+# Boutons principaux
+with col1:
+    if st.button("Surfaces et volumes", key="surfaces_volumes"):
+        st.session_state['active_button'] = "Surfaces et volumes"
+    if st.button("Carte de contours", key="contours"):
+        st.session_state['active_button'] = "Carte de contours"
+
+with col2:
+    if st.button("Trouver un point", key="trouver_point"):
+        st.session_state['active_button'] = "Trouver un point"
+    if st.button("Générer un rapport", key="generer_rapport"):
+        st.session_state['active_button'] = "Générer un rapport"
+
+with col3:
+    if st.button("Télécharger la carte", key="telecharger_carte"):
+        st.session_state['active_button'] = "Télécharger la carte"
+    if st.button("Dessin automatique", key="dessin_auto"):
+        st.session_state['active_button'] = "Dessin automatique"
+
+# Création d'un espace réservé pour les paramètres
+parameters_placeholder = st.empty()
+
+# Affichage des paramètres en fonction du bouton actif
+if st.session_state['active_button']:
+    with parameters_placeholder.container():
+        display_parameters(st.session_state['active_button'])
