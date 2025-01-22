@@ -18,6 +18,7 @@ from rasterio.warp import calculate_default_transform, reproject
 import matplotlib.pyplot as plt
 import os
 import uuid  # Pour générer des identifiants uniques
+from rasterio.features import geometry_mask  # Pour créer des masques à partir de polygones
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -110,24 +111,38 @@ def load_tiff(tiff_path):
         with rasterio.open(tiff_path) as src:
             data = src.read(1)
             bounds = src.bounds
-        return data, bounds
+            transform = src.transform
+        return data, bounds, transform
     except Exception as e:
         st.error(f"Erreur lors du chargement du fichier TIFF : {e}")
-        return None, None
+        return None, None, None
 
 # Fonction pour calculer le volume pour chaque polygone
-def calculate_volume_for_each_polygon(mns, mnt, bounds, polygons_gdf):
+def calculate_volume_for_each_polygon(mns, mnt, transform, polygons_gdf):
     """Calcule le volume pour chaque polygone individuellement."""
     volumes = []
+    pixel_width = transform.a  # Largeur d'un pixel en mètres
+    pixel_height = -transform.e  # Hauteur d'un pixel en mètres
+
     for idx, polygon in polygons_gdf.iterrows():
         try:
+            # Créer un masque pour le polygone
+            mask = geometry_mask(
+                [polygon.geometry],
+                out_shape=mns.shape,
+                transform=transform,
+                invert=True
+            )
+
             # Masquer les données en dehors du polygone courant
-            mask = polygon.geometry
             mns_masked = np.where(mask, mns, np.nan)
             mnt_masked = np.where(mask, mnt, np.nan)
 
             # Calculer la différence entre MNS et MNT
-            volume = np.nansum(mns_masked - mnt_masked) * (bounds[2] - bounds[0]) * (bounds[3] - bounds[1]) / (mns.shape[0] * mns.shape[1])
+            diff = mns_masked - mnt_masked
+
+            # Calculer le volume
+            volume = np.nansum(diff) * pixel_width * pixel_height
             volumes.append(volume)
             st.write(f"Volume pour le polygone {idx + 1} : {volume:.2f} m³")
         except Exception as e:
@@ -140,37 +155,46 @@ def calculate_global_volume(volumes):
     return sum(volumes)
 
 # Fonction pour calculer le volume sans MNT
-def calculate_volume_without_mnt(mns, mns_bounds, polygons_gdf, reference_altitude):
+def calculate_volume_without_mnt(mns, transform, polygons_gdf, reference_altitude):
     """
     Calcule le volume sans utiliser de MNT en utilisant une altitude de référence.
     
     :param mns: Données MNS (Modèle Numérique de Surface)
-    :param mns_bounds: Bornes géographiques du MNS
+    :param transform: Transform du fichier MNS
     :param polygons_gdf: GeoDataFrame contenant les polygones
     :param reference_altitude: Altitude de référence pour le calcul du volume
     :return: Volume positif, volume négatif, volume réel
     """
     positive_volume = 0.0
     negative_volume = 0.0
-    
+    pixel_width = transform.a  # Largeur d'un pixel en mètres
+    pixel_height = -transform.e  # Hauteur d'un pixel en mètres
+
     for idx, polygon in polygons_gdf.iterrows():
         try:
+            # Créer un masque pour le polygone
+            mask = geometry_mask(
+                [polygon.geometry],
+                out_shape=mns.shape,
+                transform=transform,
+                invert=True
+            )
+
             # Masquer les données en dehors du polygone courant
-            mask = polygon.geometry
             mns_masked = np.where(mask, mns, np.nan)
-            
+
             # Calculer la différence entre le MNS et l'altitude de référence
             diff = mns_masked - reference_altitude
-            
+
             # Calculer les volumes positif et négatif
-            positive_volume += np.nansum(np.where(diff > 0, diff, 0)) * (mns_bounds[2] - mns_bounds[0]) * (mns_bounds[3] - mns_bounds[1]) / (mns.shape[0] * mns.shape[1])
-            negative_volume += np.nansum(np.where(diff < 0, diff, 0)) * (mns_bounds[2] - mns_bounds[0]) * (mns_bounds[3] - mns_bounds[1]) / (mns.shape[0] * mns.shape[1])
+            positive_volume += np.nansum(np.where(diff > 0, diff, 0)) * pixel_width * pixel_height
+            negative_volume += np.nansum(np.where(diff < 0, diff, 0)) * pixel_width * pixel_height
         except Exception as e:
             st.error(f"Erreur lors du calcul du volume pour le polygone {idx + 1} : {e}")
-    
+
     # Calculer le volume réel (différence entre positif et négatif)
     real_volume = positive_volume + negative_volume
-    
+
     return positive_volume, negative_volume, real_volume
 
 # Fonction pour rechercher des polygones dans les couches téléversées
@@ -493,9 +517,9 @@ def display_parameters(button_name):
             return
 
         # Charger les données
-        mns, mns_bounds = load_tiff(mns_layer["path"])
+        mns, mns_bounds, mns_transform = load_tiff(mns_layer["path"])
         if method == "Méthode 1 : MNS - MNT":
-            mnt, mnt_bounds = load_tiff(mnt_layer["path"])
+            mnt, mnt_bounds, mnt_transform = load_tiff(mnt_layer["path"])
 
         # Récupérer les polygones des couches téléversées, des couches créées par l'utilisateur et des dessins
         polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
@@ -522,7 +546,7 @@ def display_parameters(button_name):
                     st.error("Les fichiers doivent avoir les mêmes bornes géographiques.")
                 else:
                     # Calculer le volume pour chaque polygone
-                    volumes = calculate_volume_for_each_polygon(mns, mnt, mnt_bounds, polygons_gdf)
+                    volumes = calculate_volume_for_each_polygon(mns, mnt, mns_transform, polygons_gdf)
                     
                     # Calculer le volume global
                     global_volume = calculate_global_volume(volumes)
@@ -536,7 +560,7 @@ def display_parameters(button_name):
                     key="reference_altitude"
                 )
                 positive_volume, negative_volume, real_volume = calculate_volume_without_mnt(
-                    mns, mns_bounds, polygons_gdf, reference_altitude
+                    mns, mns_transform, polygons_gdf, reference_altitude
                 )
                 st.write(f"Volume positif (au-dessus de la référence) : {positive_volume:.2f} m³")
                 st.write(f"Volume négatif (en dessous de la référence) : {negative_volume:.2f} m³")
