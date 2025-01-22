@@ -112,10 +112,11 @@ def load_tiff(tiff_path):
             data = src.read(1)
             bounds = src.bounds
             transform = src.transform
-        return data, bounds, transform
+            crs = src.crs
+        return data, bounds, transform, crs
     except Exception as e:
         st.error(f"Erreur lors du chargement du fichier TIFF : {e}")
-        return None, None, None
+        return None, None, None, None
 
 # Fonction pour calculer le volume pour chaque polygone
 def calculate_volume_for_each_polygon(mns, mnt, transform, polygons_gdf):
@@ -518,9 +519,24 @@ def display_parameters(button_name):
             return
 
         # Charger les données
-        mns, mns_bounds, mns_transform = load_tiff(mns_layer["path"])
+        mns, mns_bounds, mns_transform, mns_crs = load_tiff(mns_layer["path"])
         if method == "Méthode 1 : MNS - MNT":
-            mnt, mnt_bounds, mnt_transform = load_tiff(mnt_layer["path"])
+            mnt, mnt_bounds, mnt_transform, mnt_crs = load_tiff(mnt_layer["path"])
+
+        # Afficher des informations de débogage
+        st.markdown("### Informations de débogage")
+        st.write(f"**MNS :**")
+        st.write(f"- Hauteur minimale : {np.nanmin(mns):.2f} m")
+        st.write(f"- Hauteur maximale : {np.nanmax(mns):.2f} m")
+        st.write(f"- Projection : {mns_crs}")
+        st.write(f"- Résolution spatiale : {mns_transform.a:.2f} m (largeur) x {-mns_transform.e:.2f} m (hauteur)")
+
+        if method == "Méthode 1 : MNS - MNT":
+            st.write(f"**MNT :**")
+            st.write(f"- Hauteur minimale : {np.nanmin(mnt):.2f} m")
+            st.write(f"- Hauteur maximale : {np.nanmax(mnt):.2f} m")
+            st.write(f"- Projection : {mnt_crs}")
+            st.write(f"- Résolution spatiale : {mnt_transform.a:.2f} m (largeur) x {-mnt_transform.e:.2f} m (hauteur)")
 
         # Récupérer les polygones des couches téléversées, des couches créées par l'utilisateur et des dessins
         polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
