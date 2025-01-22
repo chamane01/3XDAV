@@ -260,6 +260,21 @@ def convert_drawn_features_to_gdf(features):
     gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")
     return gdf
 
+# Fonction pour afficher les valeurs du raster à un point donné
+def get_raster_value_at_point(raster_data, transform, point):
+    """Retourne la valeur du raster à un point donné."""
+    try:
+        # Convertir les coordonnées du point en indices de ligne et de colonne
+        col, row = ~transform * (point.x, point.y)
+        col, row = int(col), int(row)
+        
+        # Récupérer la valeur du raster
+        value = raster_data[row, col]
+        return value
+    except Exception as e:
+        st.error(f"Erreur lors de la récupération de la valeur du raster : {e}")
+        return None
+
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
     st.session_state["layers"] = {}  # Couches créées par l'utilisateur
@@ -639,3 +654,46 @@ parameters_placeholder = st.empty()
 if st.session_state['active_button']:
     with parameters_placeholder.container():
         display_parameters(st.session_state['active_button'])
+
+# Outil interactif pour afficher les valeurs du raster
+st.markdown("### Outil interactif : Afficher les valeurs du raster")
+if st.session_state["uploaded_layers"]:
+    # Sélectionner la couche TIFF
+    tiff_layers = [layer for layer in st.session_state["uploaded_layers"] if layer["type"] == "TIFF"]
+    if tiff_layers:
+        selected_tiff_layer = st.selectbox(
+            "Sélectionnez une couche TIFF pour afficher les valeurs",
+            options=[layer["name"] for layer in tiff_layers],
+            key="tiff_layer_selectbox"
+        )
+
+        # Récupérer les données de la couche sélectionnée
+        selected_layer = next(layer for layer in tiff_layers if layer["name"] == selected_tiff_layer)
+        raster_data, bounds, transform, crs, resolution = load_tiff(selected_layer["path"])
+
+        # Afficher les informations de la couche sélectionnée
+        st.write(f"**Couche sélectionnée : {selected_tiff_layer}**")
+        st.write(f"- Hauteur minimale : {np.nanmin(raster_data):.2f} m")
+        st.write(f"- Hauteur maximale : {np.nanmax(raster_data):.2f} m")
+        st.write(f"- Projection : {crs}")
+        st.write(f"- Résolution spatiale : {resolution[0]:.2f} m (largeur) x {resolution[1]:.2f} m (hauteur)")
+
+        # Afficher la carte avec un marqueur interactif
+        st.markdown("Cliquez sur la carte pour afficher la valeur du raster à cet endroit.")
+        map_output = st_folium(m, width=800, height=600, returned_objects=["last_clicked"])
+
+        if map_output and "last_clicked" in map_output and map_output["last_clicked"]:
+            # Récupérer les coordonnées du point cliqué
+            lat, lon = map_output["last_clicked"]["lat"], map_output["last_clicked"]["lng"]
+            point = Point(lon, lat)
+
+            # Afficher la valeur du raster à ce point
+            value = get_raster_value_at_point(raster_data, transform, point)
+            if value is not None:
+                st.write(f"Valeur du raster à ({lat:.6f}, {lon:.6f}) : {value:.2f} m")
+            else:
+                st.error("Impossible de récupérer la valeur du raster à cet endroit.")
+    else:
+        st.write("Aucune couche TIFF disponible pour afficher les valeurs.")
+else:
+    st.write("Aucune couche téléversée pour le moment.")
