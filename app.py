@@ -17,9 +17,7 @@ from rasterio.enums import Resampling
 from rasterio.warp import calculate_default_transform, reproject
 import matplotlib.pyplot as plt
 import os
-import uuid
-from skimage import measure  # Pour la génération des contours
-import matplotlib.colors  # Pour le dégradé de couleurs
+import uuid  # Pour générer des identifiants uniques
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -369,7 +367,7 @@ with col1:
     if st.button("Surfaces et volumes", key="surfaces_volumes"):
         st.write("Fonctionnalité en cours de développement.")
     if st.button("Carte de contours", key="contours"):
-        st.session_state["show_contour_menu"] = not st.session_state.get("show_contour_menu", False)
+        st.write("Fonctionnalité en cours de développement.")
 
 with col2:
     if st.button("Trouver un point", key="trouver_point"):
@@ -382,74 +380,6 @@ with col3:
         st.write("Fonctionnalité en cours de développement.")
     if st.button("Dessin automatique", key="dessin_auto"):
         st.write("Fonctionnalité en cours de développement.")
-
-# Afficher le menu de gestion des contours si le bouton est cliqué
-if st.session_state.get("show_contour_menu", False):
-    st.markdown("### Paramètres de génération des contours")
-    contour_interval = st.number_input("Intervalle entre les courbes de niveau (mètres)", min_value=1.0, value=10.0, step=1.0)
-    if st.button("Générer les contours", key="generate_contours"):
-        # Vérifier si un fichier MNT est téléversé
-        mnt_layer = next((layer for layer in st.session_state["uploaded_layers"] if layer["name"] == "MNT"), None)
-        if mnt_layer:
-            try:
-                # Ouvrir le fichier MNT
-                with rasterio.open(mnt_layer["path"]) as src:
-                    dem_data = src.read(1)
-                    min_altitude = float(np.min(dem_data))  # Altitude minimale du MNT
-                    max_altitude = float(np.max(dem_data))  # Altitude maximale du MNT
-
-                    # Générer des contours pour plusieurs altitudes
-                    contour_features = []
-                    levels = np.arange(min_altitude, max_altitude, contour_interval)  # Altitudes à générer
-                    cmap = plt.get_cmap("viridis")  # Palette de couleurs
-
-                    for level in levels:
-                        contours = measure.find_contours(dem_data, level=level)
-                        for contour in contours:
-                            # Convertir les coordonnées des contours en latitude/longitude
-                            coords = [src.xy(row, col) for row, col in contour]
-                            contour_features.append({
-                                "type": "Feature",
-                                "geometry": {
-                                    "type": "LineString",
-                                    "coordinates": coords
-                                },
-                                "properties": {
-                                    "altitude": level  # Stocker l'altitude pour la couleur
-                                }
-                            })
-
-                    # Créer une couche GeoJSON pour les contours
-                    contour_geojson = {
-                        "type": "FeatureCollection",
-                        "features": contour_features
-                    }
-
-                    # Ajouter les contours à la carte principale avec un dégradé de couleurs
-                    folium.GeoJson(
-                        contour_geojson,
-                        name="Contours",
-                        style_function=lambda feature: {
-                            "color": matplotlib.colors.to_hex(
-                                cmap((feature["properties"]["altitude"] - min_altitude) / (max_altitude - min_altitude))
-                            ),  # Couleur en fonction de l'altitude
-                            "weight": 1,  # Épaisseur des contours réduite
-                            "opacity": 0.7
-                        }
-                    ).add_to(m)
-
-                    # Ajouter les contours à la liste des couches téléversées
-                    contour_layer = {
-                        "type": "GeoJSON",
-                        "name": "Contours",
-                        "data": contour_geojson
-                    }
-                    st.session_state["uploaded_layers"].append(contour_layer)
-                    st.success(f"Les contours ont été générés avec succès pour {len(levels)} altitudes.")
-            except Exception as e:
-                st.error(f"Erreur lors de la génération des contours : {e}")
-        else:
-            st.error("Aucun fichier MNT n'a été téléversé. Veuillez téléverser un fichier MNT pour générer les contours.")
 
 # Boutons secondaires (couleur normale)
 col4, col5, col6 = st.columns(3)
@@ -484,7 +414,7 @@ st.markdown(
     div.stButton > button:first-child:not([class*="sidebar"]) {
         background-color: #4CAF50; /* Fond vert par défaut */
         color: white; /* Texte blanc */
-        border: 2px solid #4CAF50; /* Bordure verte */
+        border: 2px solid #4CAF50; /* Bordure verte */a
         padding: 10px 24px;
         border-radius: 8px;
         transition: all 0.3s ease;
