@@ -290,7 +290,8 @@ with st.sidebar:
         # Ajouter les entités non dupliquées à la couche sélectionnée
         current_layer = st.session_state["layers"][layer_name]
         for feature in st.session_state["new_features"]:
-            if feature not in current_layer:
+            # Vérifier si l'entité est déjà dans la couche
+            if not any(existing_feature["geometry"] == feature["geometry"] for existing_feature in current_layer):
                 current_layer.append(feature)
         st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
         st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
