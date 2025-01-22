@@ -410,17 +410,31 @@ if st.session_state.get("show_contour_menu", False):
                             "properties": {}
                         })
 
-                    # Ajouter les contours en tant que nouvelle couche
+                    # Créer une couche GeoJSON pour les contours
+                    contour_geojson = {
+                        "type": "FeatureCollection",
+                        "features": contour_features
+                    }
+
+                    # Ajouter les contours à la carte principale
+                    folium.GeoJson(
+                        contour_geojson,
+                        name="Contours",
+                        style_function=lambda x: {
+                            "color": "red",  # Couleur des contours
+                            "weight": 2,     # Épaisseur des lignes
+                            "opacity": 0.7   # Opacité des lignes
+                        }
+                    ).add_to(m)
+
+                    # Ajouter les contours à la liste des couches téléversées
                     contour_layer = {
                         "type": "GeoJSON",
                         "name": "Contours",
-                        "data": {
-                            "type": "FeatureCollection",
-                            "features": contour_features
-                        }
+                        "data": contour_geojson
                     }
                     st.session_state["uploaded_layers"].append(contour_layer)
-                    st.success("Les contours ont été générés avec succès.")
+                    st.success("Les contours ont été générés avec succès et affichés sur la carte.")
             except Exception as e:
                 st.error(f"Erreur lors de la génération des contours : {e}")
         else:
