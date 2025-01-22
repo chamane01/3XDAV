@@ -17,7 +17,8 @@ from rasterio.enums import Resampling
 from rasterio.warp import calculate_default_transform, reproject
 import matplotlib.pyplot as plt
 import os
-import uuid  # Pour générer des identifiants uniques
+import uuid
+from skimage import measure  # Pour la génération des contours
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -367,7 +368,7 @@ with col1:
     if st.button("Surfaces et volumes", key="surfaces_volumes"):
         st.write("Fonctionnalité en cours de développement.")
     if st.button("Carte de contours", key="contours"):
-        st.write("Fonctionnalité en cours de développement.")
+        st.session_state["show_contour_menu"] = not st.session_state.get("show_contour_menu", False)
 
 with col2:
     if st.button("Trouver un point", key="trouver_point"):
@@ -380,6 +381,50 @@ with col3:
         st.write("Fonctionnalité en cours de développement.")
     if st.button("Dessin automatique", key="dessin_auto"):
         st.write("Fonctionnalité en cours de développement.")
+
+# Afficher le menu de gestion des contours si le bouton est cliqué
+if st.session_state.get("show_contour_menu", False):
+    st.markdown("### Paramètres de génération des contours")
+    contour_interval = st.number_input("Intervalle entre les courbes de niveau (mètres)", min_value=1.0, value=10.0, step=1.0)
+    if st.button("Générer les contours", key="generate_contours"):
+        # Vérifier si un fichier MNT est téléversé
+        mnt_layer = next((layer for layer in st.session_state["uploaded_layers"] if layer["name"] == "MNT"), None)
+        if mnt_layer:
+            try:
+                # Générer les contours
+                with rasterio.open(mnt_layer["path"]) as src:
+                    dem_data = src.read(1)
+                    contours = measure.find_contours(dem_data, level=contour_interval)
+
+                    # Convertir les contours en GeoJSON
+                    contour_features = []
+                    for contour in contours:
+                        # Convertir les coordonnées des contours en latitude/longitude
+                        coords = [src.xy(row, col) for row, col in contour]
+                        contour_features.append({
+                            "type": "Feature",
+                            "geometry": {
+                                "type": "LineString",
+                                "coordinates": coords
+                            },
+                            "properties": {}
+                        })
+
+                    # Ajouter les contours en tant que nouvelle couche
+                    contour_layer = {
+                        "type": "GeoJSON",
+                        "name": "Contours",
+                        "data": {
+                            "type": "FeatureCollection",
+                            "features": contour_features
+                        }
+                    }
+                    st.session_state["uploaded_layers"].append(contour_layer)
+                    st.success("Les contours ont été générés avec succès.")
+            except Exception as e:
+                st.error(f"Erreur lors de la génération des contours : {e}")
+        else:
+            st.error("Aucun fichier MNT n'a été téléversé. Veuillez téléverser un fichier MNT pour générer les contours.")
 
 # Boutons secondaires (couleur normale)
 col4, col5, col6 = st.columns(3)
@@ -414,7 +459,7 @@ st.markdown(
     div.stButton > button:first-child:not([class*="sidebar"]) {
         background-color: #4CAF50; /* Fond vert par défaut */
         color: white; /* Texte blanc */
-        border: 2px solid #4CAF50; /* Bordure verte */a
+        border: 2px solid #4CAF50; /* Bordure verte */
         padding: 10px 24px;
         border-radius: 8px;
         transition: all 0.3s ease;
