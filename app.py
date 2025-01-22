@@ -105,6 +105,7 @@ def calculate_geojson_bounds(geojson_data):
     return gdf.total_bounds  # Returns [minx, miny, maxx, maxy]
 
 # Fonction pour générer les contours à partir du MNT
+# Fonction pour générer les contours à partir du MNT
 def generate_contours(map_object):
     # Vérifier si un MNT est téléversé
     mnt_layer = next((layer for layer in st.session_state["uploaded_layers"] if layer["name"] == "MNT"), None)
@@ -124,19 +125,19 @@ def generate_contours(map_object):
         contours = measure.find_contours(dem_data, level=0)  # Vous pouvez ajuster le niveau de contour ici
 
         # Convertir les contours en LineString et les ajouter à la carte
-        contour_layer = folium.FeatureGroup(name="Contours", show=True)
+        contour_layer = folium.FeatureGroup(name="Contours", show=True)  # Activer par défaut
         
         for contour in contours:
             # Convertir les coordonnées des contours en coordonnées géographiques
             coords = [transform * (x, y) for y, x in contour]
             line = LineString(coords)
             
-            # Ajouter le contour à la couche
+            # Ajouter le contour à la couche avec un style distinct
             folium.PolyLine(
                 locations=[(lat, lon) for lon, lat in line.coords],
-                color="black",
-                weight=1,
-                opacity=0.7,
+                color="red",  # Couleur rouge pour les contours
+                weight=2,     # Épaisseur de ligne plus grande
+                opacity=0.9,  # Opacité élevée pour une meilleure visibilité
             ).add_to(contour_layer)
 
         # Ajouter la couche de contours à la carte
