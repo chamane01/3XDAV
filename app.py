@@ -142,14 +142,8 @@ def generate_contours(map_object):
         # Ajouter la couche de contours à la carte
         contour_layer.add_to(map_object)
 
-        # Ajuster l'emprise de la carte en fonction du zoom et de l'emprise du MNT
-        current_bounds = map_object.get_bounds()
-        mnt_bounds = [[bounds.bottom, bounds.left], [bounds.top, bounds.right]]
-
-        if map_object.zoom < 10:  # Exemple de seuil de zoom
-            map_object.fit_bounds(mnt_bounds)
-        else:
-            map_object.fit_bounds(current_bounds)
+        # Ajuster l'emprise de la carte pour inclure les contours
+        map_object.fit_bounds([[bounds.bottom, bounds.left], [bounds.top, bounds.right]])
 
         st.success("Les contours ont été générés et ajoutés à la carte.")
     except Exception as e:
