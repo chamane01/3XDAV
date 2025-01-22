@@ -105,7 +105,6 @@ def calculate_geojson_bounds(geojson_data):
     return gdf.total_bounds  # Returns [minx, miny, maxx, maxy]
 
 # Fonction pour générer les contours à partir du MNT
-# Fonction pour générer les contours à partir du MNT
 def generate_contours(map_object):
     # Vérifier si un MNT est téléversé
     mnt_layer = next((layer for layer in st.session_state["uploaded_layers"] if layer["name"] == "MNT"), None)
