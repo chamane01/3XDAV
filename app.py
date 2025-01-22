@@ -113,10 +113,25 @@ def load_tiff(tiff_path):
             bounds = src.bounds
             transform = src.transform
             crs = src.crs
-        return data, bounds, transform, crs
+            resolution = (transform.a, -transform.e)  # Résolution spatiale (largeur, hauteur)
+        return data, bounds, transform, crs, resolution
     except Exception as e:
         st.error(f"Erreur lors du chargement du fichier TIFF : {e}")
-        return None, None, None, None
+        return None, None, None, None, None
+
+# Fonction pour calculer la surface d'un polygone
+def calculate_polygon_area(polygon, transform):
+    """Calcule la surface d'un polygone en mètres carrés."""
+    # Convertir le polygone en GeoDataFrame
+    gdf = gpd.GeoDataFrame(geometry=[polygon], crs="EPSG:4326")
+    
+    # Reprojecter en UTM pour obtenir une surface en mètres carrés
+    utm_crs = gdf.estimate_utm_crs()
+    gdf_utm = gdf.to_crs(utm_crs)
+    
+    # Calculer la surface
+    area = gdf_utm.geometry.area.values[0]
+    return area
 
 # Fonction pour calculer le volume pour chaque polygone
 def calculate_volume_for_each_polygon(mns, mnt, transform, polygons_gdf):
@@ -141,6 +156,10 @@ def calculate_volume_for_each_polygon(mns, mnt, transform, polygons_gdf):
 
             # Calculer la différence entre MNS et MNT
             diff = mns_masked - mnt_masked
+
+            # Calculer la surface du polygone
+            area = calculate_polygon_area(polygon.geometry, transform)
+            st.write(f"Surface du polygone {idx + 1} : {area:.2f} m²")
 
             # Calculer le volume
             volume = np.nansum(diff) * pixel_width * pixel_height
@@ -186,6 +205,10 @@ def calculate_volume_without_mnt(mns, transform, polygons_gdf, reference_altitud
 
             # Calculer la différence entre le MNS et l'altitude de référence
             diff = mns_masked - reference_altitude
+
+            # Calculer la surface du polygone
+            area = calculate_polygon_area(polygon.geometry, transform)
+            st.write(f"Surface du polygone {idx + 1} : {area:.2f} m²")
 
             # Calculer les volumes positif et négatif
             positive_volume += np.nansum(np.where(diff > 0, diff, 0)) * pixel_width * pixel_height
@@ -519,9 +542,9 @@ def display_parameters(button_name):
             return
 
         # Charger les données
-        mns, mns_bounds, mns_transform, mns_crs = load_tiff(mns_layer["path"])
+        mns, mns_bounds, mns_transform, mns_crs, mns_resolution = load_tiff(mns_layer["path"])
         if method == "Méthode 1 : MNS - MNT":
-            mnt, mnt_bounds, mnt_transform, mnt_crs = load_tiff(mnt_layer["path"])
+            mnt, mnt_bounds, mnt_transform, mnt_crs, mnt_resolution = load_tiff(mnt_layer["path"])
 
         # Afficher des informations de débogage
         st.markdown("### Informations de débogage")
@@ -529,14 +552,14 @@ def display_parameters(button_name):
         st.write(f"- Hauteur minimale : {np.nanmin(mns):.2f} m")
         st.write(f"- Hauteur maximale : {np.nanmax(mns):.2f} m")
         st.write(f"- Projection : {mns_crs}")
-        st.write(f"- Résolution spatiale : {mns_transform.a:.2f} m (largeur) x {-mns_transform.e:.2f} m (hauteur)")
+        st.write(f"- Résolution spatiale : {mns_resolution[0]:.2f} m (largeur) x {mns_resolution[1]:.2f} m (hauteur)")
 
         if method == "Méthode 1 : MNS - MNT":
             st.write(f"**MNT :**")
             st.write(f"- Hauteur minimale : {np.nanmin(mnt):.2f} m")
             st.write(f"- Hauteur maximale : {np.nanmax(mnt):.2f} m")
             st.write(f"- Projection : {mnt_crs}")
-            st.write(f"- Résolution spatiale : {mnt_transform.a:.2f} m (largeur) x {-mnt_transform.e:.2f} m (hauteur)")
+            st.write(f"- Résolution spatiale : {mnt_resolution[0]:.2f} m (largeur) x {mnt_resolution[1]:.2f} m (hauteur)")
 
         # Récupérer les polygones des couches téléversées, des couches créées par l'utilisateur et des dessins
         polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
