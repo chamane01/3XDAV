@@ -19,134 +19,14 @@ import matplotlib.pyplot as plt
 import os
 import uuid  # Pour générer des identifiants uniques
 
-# Dictionnaire des couleurs pour les types de fichiers GeoJSON
-geojson_colors = {
-    "Routes": "orange",
-    "Pistes": "brown",
-    "Plantations": "green",
-    "Bâtiments": "gray",
-    "Électricité": "yellow",
-    "Assainissements": "blue",
-    "Villages": "purple",
-    "Villes": "red",
-    "Chemin de fer": "black",
-    "Parc et réserves": "darkgreen",
-    "Cours d'eau": "lightblue",
-    "Polygonale": "pink"
-}
-
-# Fonction pour reprojeter un fichier TIFF avec un nom unique
-def reproject_tiff(input_tiff, target_crs):
-    """Reproject a TIFF file to a target CRS."""
-    with rasterio.open(input_tiff) as src:
-        transform, width, height = rasterio.warp.calculate_default_transform(
-            src.crs, target_crs, src.width, src.height, *src.bounds
-        )
-        kwargs = src.meta.copy()
-        kwargs.update({
-            "crs": target_crs,
-            "transform": transform,
-            "width": width,
-            "height": height,
-        })
-
-        # Générer un nom de fichier unique
-        unique_id = str(uuid.uuid4())[:8]  # Utilisation des 8 premiers caractères d'un UUID
-        reprojected_tiff = f"reprojected_{unique_id}.tiff"
-        with rasterio.open(reprojected_tiff, "w", **kwargs) as dst:
-            for i in range(1, src.count + 1):
-                rasterio.warp.reproject(
-                    source=rasterio.band(src, i),
-                    destination=rasterio.band(dst, i),
-                    src_transform=src.transform,
-                    src_crs=src.crs,
-                    dst_transform=transform,
-                    dst_crs=target_crs,
-                    resampling=rasterio.warp.Resampling.nearest,
-                )
-    return reprojected_tiff
-
-# Fonction pour appliquer un gradient de couleur à un MNT/MNS
-def apply_color_gradient(tiff_path, output_path):
-    """Apply a color gradient to the DEM TIFF and save it as a PNG."""
-    with rasterio.open(tiff_path) as src:
-        # Read the DEM data
-        dem_data = src.read(1)
-        
-        # Create a color map using matplotlib
-        cmap = plt.get_cmap("terrain")
-        norm = plt.Normalize(vmin=dem_data.min(), vmax=dem_data.max())
-        
-        # Apply the colormap
-        colored_image = cmap(norm(dem_data))
-        
-        # Save the colored image as PNG
-        plt.imsave(output_path, colored_image)
-        plt.close()
-
-# Fonction pour ajouter une image TIFF à la carte
-def add_image_overlay(map_object, tiff_path, bounds, name):
-    """Add a TIFF image overlay to a Folium map."""
-    with rasterio.open(tiff_path) as src:
-        image = reshape_as_image(src.read())
-        folium.raster_layers.ImageOverlay(
-            image=image,
-            bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
-            name=name,
-            opacity=0.6,
-        ).add_to(map_object)
-
-# Fonction pour calculer les limites d'un GeoJSON
-def calculate_geojson_bounds(geojson_data):
-    """Calculate bounds from a GeoJSON object."""
-    geometries = [feature["geometry"] for feature in geojson_data["features"]]
-    gdf = gpd.GeoDataFrame.from_features(geojson_data)
-    return gdf.total_bounds  # Returns [minx, miny, maxx, maxy]
-
-# Fonction pour charger un fichier TIFF
-def load_tiff(tiff_path):
-    """Charge un fichier TIFF et retourne les données et les bornes."""
-    try:
-        with rasterio.open(tiff_path) as src:
-            data = src.read(1)
-            bounds = src.bounds
-            transform = src.transform
-            if transform.is_identity:
-                st.warning("La transformation est invalide. Génération d'une transformation par défaut.")
-                transform, width, height = calculate_default_transform(src.crs, src.crs, src.width, src.height, *src.bounds)
-            st.write(f"Transform: {transform}")
-            st.write(f"Résolution spatiale: {transform.a} m (largeur) x {-transform.e} m (hauteur)")
-        return data, bounds
-    except Exception as e:
-        st.error(f"Erreur lors du chargement du fichier TIFF : {e}")
-        return None, None
-
-# Fonction pour calculer le volume pour chaque polygone
-def calculate_volume_for_each_polygon(mns, mnt, bounds, polygons_gdf):
-    """Calcule le volume pour chaque polygone individuellement."""
-    volumes = []
-    for idx, polygon in polygons_gdf.iterrows():
-        try:
-            # Masquer les données en dehors du polygone courant
-            mask = polygon.geometry
-            mns_masked = np.where(mask, mns, np.nan)
-            mnt_masked = np.where(mask, mnt, np.nan)
-
-            # Calculer la différence entre MNS et MNT
-            volume = np.nansum(mns_masked - mnt_masked) * (bounds[2] - bounds[0]) * (bounds[3] - bounds[1]) / (mns.shape[0] * mns.shape[1])
-            volumes.append(volume)
-            st.write(f"Volume pour le polygone {idx + 1} : {volume:.2f} m³")
-        except Exception as e:
-            st.error(f"Erreur lors du calcul du volume pour le polygone {idx + 1} : {e}")
-    return volumes
-
-# Fonction pour calculer le volume global
-def calculate_global_volume(volumes):
-    """Calcule le volume global en additionnant les volumes individuels."""
-    return sum(volumes)
+# Fonction pour calculer la surface d'un polygone
+def calculate_area(polygon):
+    """Calcule la surface d'un polygone en mètres carrés."""
+    geom = shape(polygon)
+    return geom.area
 
 # Fonction pour calculer le volume sans MNT
-def calculate_volume_without_mnt(mns, mns_bounds, polygons_gdf, reference_altitude):
+def calculate_volume_without_mnt(mns, mns_bounds, polygons_gdf, reference_altitude, resolution_x, resolution_y):
     """
     Calcule le volume sans utiliser de MNT en utilisant une altitude de référence.
     
@@ -154,10 +34,13 @@ def calculate_volume_without_mnt(mns, mns_bounds, polygons_gdf, reference_altitu
     :param mns_bounds: Bornes géographiques du MNS
     :param polygons_gdf: GeoDataFrame contenant les polygones
     :param reference_altitude: Altitude de référence pour le calcul du volume
-    :return: Volume positif, volume négatif, volume réel
+    :param resolution_x: Résolution spatiale en X (mètres par pixel)
+    :param resolution_y: Résolution spatiale en Y (mètres par pixel)
+    :return: Volume positif, volume négatif, volume réel, surface
     """
     positive_volume = 0.0
     negative_volume = 0.0
+    total_area = 0.0  # Surface totale des polygones
     
     for idx, polygon in polygons_gdf.iterrows():
         try:
@@ -169,64 +52,41 @@ def calculate_volume_without_mnt(mns, mns_bounds, polygons_gdf, reference_altitu
             diff = mns_masked - reference_altitude
             
             # Calculer les volumes positif et négatif
-            positive_volume += np.nansum(np.where(diff > 0, diff, 0)) * (mns_bounds[2] - mns_bounds[0]) * (mns_bounds[3] - mns_bounds[1]) / (mns.shape[0] * mns.shape[1])
-            negative_volume += np.nansum(np.where(diff < 0, diff, 0)) * (mns_bounds[2] - mns_bounds[0]) * (mns_bounds[3] - mns_bounds[1]) / (mns.shape[0] * mns.shape[1])
+            positive_volume += np.nansum(np.where(diff > 0, diff, 0)) * resolution_x * resolution_y
+            negative_volume += np.nansum(np.where(diff < 0, diff, 0)) * resolution_x * resolution_y
+            
+            # Calculer la surface du polygone
+            total_area += calculate_area(polygon.geometry)
         except Exception as e:
             st.error(f"Erreur lors du calcul du volume pour le polygone {idx + 1} : {e}")
     
     # Calculer le volume réel (différence entre positif et négatif)
     real_volume = positive_volume + negative_volume
     
-    return positive_volume, negative_volume, real_volume
+    return positive_volume, negative_volume, real_volume, total_area
 
-# Fonction pour rechercher des polygones dans les couches téléversées
-def find_polygons_in_layers(layers):
-    """Recherche des polygones dans les couches téléversées."""
-    polygons = []
-    for layer in layers:
-        if layer["type"] == "GeoJSON":
-            geojson_data = layer["data"]
-            for feature in geojson_data["features"]:
-                if feature["geometry"]["type"] == "Polygon":
-                    polygons.append(feature)
-    return polygons
-
-# Fonction pour rechercher des polygones dans les couches créées par l'utilisateur
-def find_polygons_in_user_layers(layers):
-    """Recherche des polygones dans les couches créées par l'utilisateur."""
-    polygons = []
-    for layer_name, features in layers.items():
-        for feature in features:
-            if feature["geometry"]["type"] == "Polygon":
-                polygons.append(feature)
-    return polygons
-
-# Fonction pour convertir les polygones en GeoDataFrame
-def convert_polygons_to_gdf(polygons):
-    """Convertit une liste de polygones en GeoDataFrame."""
-    geometries = [shape(polygon["geometry"]) for polygon in polygons]
-    gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")
-    return gdf
-
-# Fonction pour convertir les entités dessinées en GeoDataFrame
-def convert_drawn_features_to_gdf(features):
-    """Convertit les entités dessinées en GeoDataFrame."""
-    geometries = []
-    for feature in features:
-        geom = shape(feature["geometry"])
-        geometries.append(geom)
-    gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")
-    return gdf
-
-# Initialisation des couches et des entités dans la session Streamlit
-if "layers" not in st.session_state:
-    st.session_state["layers"] = {}  # Couches créées par l'utilisateur
-
-if "uploaded_layers" not in st.session_state:
-    st.session_state["uploaded_layers"] = []  # Couches téléversées (TIFF et GeoJSON)
-
-if "new_features" not in st.session_state:
-    st.session_state["new_features"] = []  # Entités temporairement dessinées
+# Fonction pour charger un fichier TIFF
+def load_tiff(tiff_path):
+    """Charge un fichier TIFF et retourne les données, les bornes et la résolution spatiale."""
+    try:
+        with rasterio.open(tiff_path) as src:
+            data = src.read(1)
+            bounds = src.bounds
+            transform = src.transform
+            if transform.is_identity:
+                st.warning("La transformation est invalide. Génération d'une transformation par défaut.")
+                transform, width, height = calculate_default_transform(src.crs, src.crs, src.width, src.height, *src.bounds)
+            
+            # Extraire la résolution spatiale
+            resolution_x = transform.a  # Résolution en X (largeur)
+            resolution_y = -transform.e  # Résolution en Y (hauteur, valeur absolue)
+            
+            st.write(f"Transform: {transform}")
+            st.write(f"Résolution spatiale: {resolution_x} m (largeur) x {resolution_y} m (hauteur)")
+        return data, bounds, resolution_x, resolution_y
+    except Exception as e:
+        st.error(f"Erreur lors du chargement du fichier TIFF : {e}")
+        return None, None, None, None
 
 # Titre de l'application
 st.title("Carte Topographique et Analyse Spatiale")
@@ -499,9 +359,9 @@ def display_parameters(button_name):
             return
 
         # Charger les données
-        mns, mns_bounds = load_tiff(mns_layer["path"])
+        mns, mns_bounds, resolution_x, resolution_y = load_tiff(mns_layer["path"])
         if method == "Méthode 1 : MNS - MNT":
-            mnt, mnt_bounds = load_tiff(mnt_layer["path"])
+            mnt, mnt_bounds, _, _ = load_tiff(mnt_layer["path"])
 
         # Récupérer les polygones des couches téléversées, des couches créées par l'utilisateur et des dessins
         polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
@@ -541,12 +401,13 @@ def display_parameters(button_name):
                     step=0.1,
                     key="reference_altitude"
                 )
-                positive_volume, negative_volume, real_volume = calculate_volume_without_mnt(
-                    mns, mns_bounds, polygons_gdf, reference_altitude
+                positive_volume, negative_volume, real_volume, total_area = calculate_volume_without_mnt(
+                    mns, mns_bounds, polygons_gdf, reference_altitude, resolution_x, resolution_y
                 )
                 st.write(f"Volume positif (au-dessus de la référence) : {positive_volume:.2f} m³")
                 st.write(f"Volume négatif (en dessous de la référence) : {negative_volume:.2f} m³")
                 st.write(f"Volume réel (différence) : {real_volume:.2f} m³")
+                st.write(f"Surface totale des polygones : {total_area:.2f} m²")
 
         except Exception as e:
             st.error(f"Erreur lors du calcul du volume : {e}")
