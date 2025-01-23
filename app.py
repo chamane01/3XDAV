@@ -121,6 +121,32 @@ def load_tiff(tiff_path):
         st.error(f"Erreur lors du chargement du fichier TIFF : {e}")
         return None, None
 
+# Fonction pour calculer la surface d'un polygone
+def calculate_surface(polygon, crs="EPSG:4326"):
+    """
+    Calcule la surface d'un polygone en mètres carrés (m²).
+    
+    :param polygon: Un polygone au format GeoJSON.
+    :param crs: Le système de coordonnées de référence (CRS) du polygone.
+    :return: La surface en mètres carrés (m²).
+    """
+    try:
+        # Convertir le polygone en objet Shapely
+        geom = shape(polygon["geometry"])
+        
+        # Créer un GeoDataFrame avec le polygone
+        gdf = gpd.GeoDataFrame(geometry=[geom], crs=crs)
+        
+        # Reprojecter en un CRS métrique (par exemple, EPSG:3857 pour Web Mercator)
+        gdf = gdf.to_crs("EPSG:3857")  # EPSG:3857 utilise des mètres comme unité
+        
+        # Calculer la surface
+        surface = gdf.geometry.area.values[0]
+        return surface
+    except Exception as e:
+        st.error(f"Erreur lors du calcul de la surface : {e}")
+        return None
+
 # Fonction pour calculer le volume pour chaque polygone
 def calculate_volume_for_each_polygon(mns, mnt, bounds, polygons_gdf):
     """Calcule le volume pour chaque polygone individuellement."""
@@ -480,9 +506,33 @@ if 'active_button' not in st.session_state:
 # Fonction pour afficher les paramètres en fonction du bouton cliqué
 def display_parameters(button_name):
     if button_name == "Surfaces et volumes":
-        st.markdown("### Calcul des volumes")
+        st.markdown("### Calcul des surfaces et volumes")
+        
+        # Récupérer les polygones des couches téléversées, des couches créées par l'utilisateur et des dessins
+        polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
+        polygons_user_layers = find_polygons_in_user_layers(st.session_state["layers"])
+        polygons_drawn = st.session_state["new_features"]
+
+        # Combiner tous les polygones
+        all_polygons = polygons_uploaded + polygons_user_layers + polygons_drawn
+
+        if not all_polygons:
+            st.error("Aucune polygonale disponible. Veuillez dessiner ou téléverser une polygonale.")
+            return
+
+        # Convertir les polygones en GeoDataFrame
+        polygons_gdf = convert_polygons_to_gdf(all_polygons)
+
+        # Calculer et afficher les surfaces
+        st.markdown("#### Surfaces des polygones")
+        for idx, polygon in enumerate(all_polygons):
+            surface = calculate_surface(polygon)
+            if surface is not None:
+                st.write(f"Surface du polygone {idx + 1} : {surface:.2f} m²")
+
+        # Calcul des volumes (partie existante)
         method = st.radio(
-            "Choisissez la méthode de calcul :",
+            "Choisissez la méthode de calcul des volumes :",
             ("Méthode 1 : MNS - MNT", "Méthode 2 : MNS seul"),
             key="volume_method"
         )
@@ -502,21 +552,6 @@ def display_parameters(button_name):
         mns, mns_bounds = load_tiff(mns_layer["path"])
         if method == "Méthode 1 : MNS - MNT":
             mnt, mnt_bounds = load_tiff(mnt_layer["path"])
-
-        # Récupérer les polygones des couches téléversées, des couches créées par l'utilisateur et des dessins
-        polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
-        polygons_user_layers = find_polygons_in_user_layers(st.session_state["layers"])
-        polygons_drawn = st.session_state["new_features"]
-
-        # Combiner tous les polygones
-        all_polygons = polygons_uploaded + polygons_user_layers + polygons_drawn
-
-        if not all_polygons:
-            st.error("Aucune polygonale disponible. Veuillez dessiner ou téléverser une polygonale.")
-            return
-
-        # Convertir les polygones en GeoDataFrame
-        polygons_gdf = convert_polygons_to_gdf(all_polygons)
 
         if mns is None or polygons_gdf is None:
             st.error("Erreur lors du chargement des fichiers.")
