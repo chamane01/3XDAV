@@ -1,5 +1,5 @@
 import streamlit as st
-from streamlit_folium import st_folium
+from streamlit_folium import st_folium, folium_static
 import folium
 from folium.plugins import Draw, MeasureControl
 from folium import LayerControl
@@ -10,7 +10,7 @@ from PIL import Image
 from rasterio.warp import transform_bounds
 import numpy as np
 import geopandas as gpd
-from shapely.geometry import Polygon, Point, LineString
+from shapely.geometry import Polygon, Point, LineString, shape
 import json
 from io import BytesIO
 from rasterio.enums import Resampling
@@ -70,17 +70,17 @@ def reproject_tiff(input_tiff, target_crs):
 def apply_color_gradient(tiff_path, output_path):
     """Apply a color gradient to the DEM TIFF and save it as a PNG."""
     with rasterio.open(tiff_path) as src:
-        # Read the DEM data
+        # Lire les données du MNT/MNS
         dem_data = src.read(1)
         
-        # Create a color map using matplotlib
+        # Créer une carte de couleurs avec matplotlib
         cmap = plt.get_cmap("terrain")
         norm = plt.Normalize(vmin=dem_data.min(), vmax=dem_data.max())
         
-        # Apply the colormap
+        # Appliquer le gradient de couleur
         colored_image = cmap(norm(dem_data))
         
-        # Save the colored image as PNG
+        # Sauvegarder l'image colorée en PNG
         plt.imsave(output_path, colored_image)
         plt.close()
 
@@ -102,6 +102,125 @@ def calculate_geojson_bounds(geojson_data):
     geometries = [feature["geometry"] for feature in geojson_data["features"]]
     gdf = gpd.GeoDataFrame.from_features(geojson_data)
     return gdf.total_bounds  # Returns [minx, miny, maxx, maxy]
+
+# Fonction pour charger un fichier TIFF et calculer la résolution spatiale
+def load_tiff(tiff_path):
+    """Charge un fichier TIFF et retourne les données, les bornes et la résolution spatiale."""
+    try:
+        with rasterio.open(tiff_path) as src:
+            data = src.read(1)
+            bounds = src.bounds
+            width = src.width
+            height = src.height
+
+            # Calculer la résolution spatiale
+            resolution_x = (bounds.right - bounds.left) / width  # Résolution en X (largeur)
+            resolution_y = (bounds.top - bounds.bottom) / height  # Résolution en Y (hauteur)
+
+            st.write(f"Résolution spatiale: {resolution_x} m (largeur) x {resolution_y} m (hauteur)")
+        return data, bounds, resolution_x, resolution_y
+    except Exception as e:
+        st.error(f"Erreur lors du chargement du fichier TIFF : {e}")
+        return None, None, None, None
+
+# Fonction pour calculer le volume pour chaque polygone
+def calculate_volume_for_each_polygon(mns, mnt, bounds, polygons_gdf, resolution_x, resolution_y):
+    """Calcule le volume pour chaque polygone individuellement."""
+    volumes = []
+    for idx, polygon in polygons_gdf.iterrows():
+        try:
+            # Masquer les données en dehors du polygone courant
+            mask = polygon.geometry
+            mns_masked = np.where(mask, mns, np.nan)
+            mnt_masked = np.where(mask, mnt, np.nan)
+
+            # Calculer la différence entre MNS et MNT
+            volume = np.nansum(mns_masked - mnt_masked) * resolution_x * resolution_y
+            volumes.append(volume)
+            st.write(f"Volume pour le polygone {idx + 1} : {volume:.2f} m³")
+        except Exception as e:
+            st.error(f"Erreur lors du calcul du volume pour le polygone {idx + 1} : {e}")
+    return volumes
+
+# Fonction pour calculer le volume global
+def calculate_global_volume(volumes):
+    """Calcule le volume global en additionnant les volumes individuels."""
+    return sum(volumes)
+
+# Fonction pour calculer le volume sans MNT
+def calculate_volume_without_mnt(mns, mns_bounds, polygons_gdf, reference_altitude, resolution_x, resolution_y):
+    """
+    Calcule le volume sans utiliser de MNT en utilisant une altitude de référence.
+    
+    :param mns: Données MNS (Modèle Numérique de Surface)
+    :param mns_bounds: Bornes géographiques du MNS
+    :param polygons_gdf: GeoDataFrame contenant les polygones
+    :param reference_altitude: Altitude de référence pour le calcul du volume
+    :param resolution_x: Résolution spatiale en X (mètres par pixel)
+    :param resolution_y: Résolution spatiale en Y (mètres par pixel)
+    :return: Volume positif, volume négatif, volume réel
+    """
+    positive_volume = 0.0
+    negative_volume = 0.0
+    
+    for idx, polygon in polygons_gdf.iterrows():
+        try:
+            # Masquer les données en dehors du polygone courant
+            mask = polygon.geometry
+            mns_masked = np.where(mask, mns, np.nan)
+            
+            # Calculer la différence entre le MNS et l'altitude de référence
+            diff = mns_masked - reference_altitude
+            
+            # Calculer les volumes positif et négatif
+            positive_volume += np.nansum(np.where(diff > 0, diff, 0)) * resolution_x * resolution_y
+            negative_volume += np.nansum(np.where(diff < 0, diff, 0)) * resolution_x * resolution_y
+        except Exception as e:
+            st.error(f"Erreur lors du calcul du volume pour le polygone {idx + 1} : {e}")
+    
+    # Calculer le volume réel (différence entre positif et négatif)
+    real_volume = positive_volume + negative_volume
+    
+    return positive_volume, negative_volume, real_volume
+
+# Fonction pour rechercher des polygones dans les couches téléversées
+def find_polygons_in_layers(layers):
+    """Recherche des polygones dans les couches téléversées."""
+    polygons = []
+    for layer in layers:
+        if layer["type"] == "GeoJSON":
+            geojson_data = layer["data"]
+            for feature in geojson_data["features"]:
+                if feature["geometry"]["type"] == "Polygon":
+                    polygons.append(feature)
+    return polygons
+
+# Fonction pour rechercher des polygones dans les couches créées par l'utilisateur
+def find_polygons_in_user_layers(layers):
+    """Recherche des polygones dans les couches créées par l'utilisateur."""
+    polygons = []
+    for layer_name, features in layers.items():
+        for feature in features:
+            if feature["geometry"]["type"] == "Polygon":
+                polygons.append(feature)
+    return polygons
+
+# Fonction pour convertir les polygones en GeoDataFrame
+def convert_polygons_to_gdf(polygons):
+    """Convertit une liste de polygones en GeoDataFrame."""
+    geometries = [shape(polygon["geometry"]) for polygon in polygons]
+    gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")
+    return gdf
+
+# Fonction pour convertir les entités dessinées en GeoDataFrame
+def convert_drawn_features_to_gdf(features):
+    """Convertit les entités dessinées en GeoDataFrame."""
+    geometries = []
+    for feature in features:
+        geom = shape(feature["geometry"])
+        geometries.append(geom)
+    gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")
+    return gdf
 
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
@@ -310,7 +429,7 @@ for layer in st.session_state["uploaded_layers"]:
             # Générer un nom de fichier unique pour l'image colorée
             unique_id = str(uuid.uuid4())[:8]
             temp_png_path = f"{layer['name'].lower()}_colored_{unique_id}.png"
-            apply_color_gradient(layer["path"], temp_png_path)
+            apply_color_gradient(layer["path"], temp_png_path)  # Appel de la fonction
             add_image_overlay(m, temp_png_path, layer["bounds"], layer["name"])
             os.remove(temp_png_path)  # Supprimer le fichier PNG temporaire
         else:
@@ -365,12 +484,76 @@ if 'active_button' not in st.session_state:
 # Fonction pour afficher les paramètres en fonction du bouton cliqué
 def display_parameters(button_name):
     if button_name == "Surfaces et volumes":
-        st.write("Menu pour Surfaces et volumes")
-        # Ajoutez ici les widgets ou les informations spécifiques à "Surfaces et volumes"
-    elif button_name == "Carte de contours":
-        st.write("Menu pour Carte de contours")
-        # Ajoutez ici les widgets ou les informations spécifiques à "Carte de contours"
-    # Ajoutez des conditions similaires pour les autres boutons
+        st.markdown("### Calcul des volumes")
+        method = st.radio(
+            "Choisissez la méthode de calcul :",
+            ("Méthode 1 : MNS - MNT", "Méthode 2 : MNS seul"),
+            key="volume_method"
+        )
+
+        # Récupérer les couches nécessaires
+        mns_layer = next((layer for layer in st.session_state["uploaded_layers"] if layer["name"] == "MNS"), None)
+        mnt_layer = next((layer for layer in st.session_state["uploaded_layers"] if layer["name"] == "MNT"), None)
+
+        if not mns_layer:
+            st.error("La couche MNS est manquante. Veuillez téléverser un fichier MNS.")
+            return
+        if method == "Méthode 1 : MNS - MNT" and not mnt_layer:
+            st.error("La couche MNT est manquante. Veuillez téléverser un fichier MNT.")
+            return
+
+        # Charger les données
+        mns, mns_bounds, resolution_x, resolution_y = load_tiff(mns_layer["path"])
+        if method == "Méthode 1 : MNS - MNT":
+            mnt, mnt_bounds, _, _ = load_tiff(mnt_layer["path"])
+
+        # Récupérer les polygones des couches téléversées, des couches créées par l'utilisateur et des dessins
+        polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
+        polygons_user_layers = find_polygons_in_user_layers(st.session_state["layers"])
+        polygons_drawn = st.session_state["new_features"]
+
+        # Combiner tous les polygones
+        all_polygons = polygons_uploaded + polygons_user_layers + polygons_drawn
+
+        if not all_polygons:
+            st.error("Aucune polygonale disponible. Veuillez dessiner ou téléverser une polygonale.")
+            return
+
+        # Convertir les polygones en GeoDataFrame
+        polygons_gdf = convert_polygons_to_gdf(all_polygons)
+
+        if mns is None or polygons_gdf is None:
+            st.error("Erreur lors du chargement des fichiers.")
+            return
+
+        try:
+            if method == "Méthode 1 : MNS - MNT":
+                if mnt is None or mnt_bounds != mns_bounds:
+                    st.error("Les fichiers doivent avoir les mêmes bornes géographiques.")
+                else:
+                    # Calculer le volume pour chaque polygone
+                    volumes = calculate_volume_for_each_polygon(mns, mnt, mnt_bounds, polygons_gdf, resolution_x, resolution_y)
+                    
+                    # Calculer le volume global
+                    global_volume = calculate_global_volume(volumes)
+                    st.write(f"Volume global : {global_volume:.2f} m³")
+            else:
+                # Saisie de l'altitude de référence pour la méthode 2
+                reference_altitude = st.number_input(
+                    "Entrez l'altitude de référence (en mètres) :",
+                    value=0.0,
+                    step=0.1,
+                    key="reference_altitude"
+                )
+                positive_volume, negative_volume, real_volume = calculate_volume_without_mnt(
+                    mns, mns_bounds, polygons_gdf, reference_altitude, resolution_x, resolution_y
+                )
+                st.write(f"Volume positif (au-dessus de la référence) : {positive_volume:.2f} m³")
+                st.write(f"Volume négatif (en dessous de la référence) : {negative_volume:.2f} m³")
+                st.write(f"Volume réel (différence) : {real_volume:.2f} m³")
+
+        except Exception as e:
+            st.error(f"Erreur lors du calcul du volume : {e}")
 
 # Ajout des boutons pour les analyses spatiales
 st.markdown("### Analyse Spatiale")
