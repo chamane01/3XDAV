@@ -36,91 +36,82 @@ geojson_colors = {
     "Polygonale": "pink"
 }
 
-# Fonctions UTM
 def get_utm_zone(longitude):
     return int((longitude + 180) // 6) + 1
 
 def get_utm_epsg(lon, lat):
     zone = get_utm_zone(lon)
-    return 32600 + zone  # Zones nord seulement pour la Côte d'Ivoire
+    return 32600 + zone  # Zones nord seulement
 
-# Fonction de reprojection améliorée
 def reproject_tiff(input_tiff, target_crs):
-    with rasterio.open(input_tiff) as src:
-        transform, width, height = calculate_default_transform(
-            src.crs, target_crs, src.width, src.height, *src.bounds
-        )
-        
-        kwargs = src.meta.copy()
-        kwargs.update({
-            "crs": target_crs,
-            "transform": transform,
-            "width": width,
-            "height": height,
-        })
+    try:
+        with rasterio.open(input_tiff) as src:
+            transform, width, height = calculate_default_transform(
+                src.crs, target_crs, src.width, src.height, *src.bounds
+            )
+            
+            kwargs = src.meta.copy()
+            kwargs.update({
+                "crs": target_crs,
+                "transform": transform,
+                "width": width,
+                "height": height,
+            })
 
-        unique_id = str(uuid.uuid4())[:8]
-        reprojected_tiff = f"reprojected_{unique_id}.tiff"
-        
-        with rasterio.open(reprojected_tiff, "w", **kwargs) as dst:
-            for i in range(1, src.count + 1):
-                reproject(
-                    source=rasterio.band(src, i),
-                    destination=rasterio.band(dst, i),
-                    src_transform=src.transform,
-                    src_crs=src.crs,
-                    dst_transform=transform,
-                    dst_crs=target_crs,
-                    resampling=Resampling.nearest,
-                )
-        return reprojected_tiff, transform
+            unique_id = str(uuid.uuid4())[:8]
+            reprojected_tiff = f"reprojected_{unique_id}.tiff"
+            
+            with rasterio.open(reprojected_tiff, "w", **kwargs) as dst:
+                for i in range(1, src.count + 1):
+                    reproject(
+                        source=rasterio.band(src, i),
+                        destination=rasterio.band(dst, i),
+                        src_transform=src.transform,
+                        src_crs=src.crs,
+                        dst_transform=transform,
+                        dst_crs=target_crs,
+                        resampling=Resampling.nearest,
+                    )
+            return reprojected_tiff, transform
+    except Exception as e:
+        st.error(f"Erreur de reprojection : {str(e)}")
+        return None, None
 
-# Fonctions d'affichage
 def apply_color_gradient(tiff_path, output_path):
-    with rasterio.open(tiff_path) as src:
-        dem_data = src.read(1)
-        cmap = plt.get_cmap("terrain")
-        norm = plt.Normalize(vmin=dem_data.min(), vmax=dem_data.max())
-        colored_image = cmap(norm(dem_data))
-        plt.imsave(output_path, colored_image)
-        plt.close()
-
-def add_image_overlay(map_object, tiff_path, bounds, name):
-    with rasterio.open(tiff_path) as src:
-        image = reshape_as_image(src.read())
-        folium.raster_layers.ImageOverlay(
-            image=image,
-            bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
-            name=name,
-            opacity=0.6,
-        ).add_to(map_object)
-
-# Fonctions de chargement
-def load_tiff(tiff_path):
     try:
         with rasterio.open(tiff_path) as src:
-            data = src.read(1)
-            bounds = src.bounds
-            transform = src.transform
-            return data, bounds, transform
+            dem_data = src.read(1)
+            cmap = plt.get_cmap("terrain")
+            norm = plt.Normalize(vmin=dem_data.min(), vmax=dem_data.max())
+            colored_image = cmap(norm(dem_data))
+            plt.imsave(output_path, colored_image)
+            plt.close()
+            return True
     except Exception as e:
-        st.error(f"Erreur de chargement : {e}")
-        return None, None, None
+        st.error(f"Erreur de coloration : {str(e)}")
+        return False
 
-# Fonctions de calcul
-def calculate_surface(polygon):
+def add_image_overlay(map_object, tiff_path, bounds, name):
     try:
-        geom = shape(polygon["geometry"])
-        gdf = gpd.GeoDataFrame(geometry=[geom], crs="EPSG:4326")
-        gdf = gdf.to_crs("EPSG:3857")
-        return gdf.geometry.area.values[0]
+        with rasterio.open(tiff_path) as src:
+            image = reshape_as_image(src.read())
+            folium.raster_layers.ImageOverlay(
+                image=image,
+                bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
+                name=name,
+                opacity=0.6,
+            ).add_to(map_object)
+            return True
     except Exception as e:
-        st.error(f"Erreur de calcul : {e}")
-        return None
+        st.error(f"Erreur d'affichage TIFF : {str(e)}")
+        return False
+
+def validate_tiff_layer(layer):
+    required_keys = ['type', 'name', 'path_4326', 'path_utm', 'utm_crs', 'bounds']
+    return all(key in layer for key in required_keys)
 
 def calculate_volume_utm(mns_path, mnt_path, polygons, utm_crs):
     try:
-        # Conversion des polygones en UTM
         gdf = gpd.GeoDataFrame(
             geometry=[shape(p["geometry"]) for p in polygons],
             crs="EPSG:4326"
@@ -138,18 +129,15 @@ def calculate_volume_utm(mns_path, mnt_path, polygons, utm_crs):
                 total_volume += np.nansum(mns - mnt) * pixel_area
 
             return total_volume
-
     except Exception as e:
-        st.error(f"Erreur de calcul UTM : {e}")
+        st.error(f"Erreur de calcul : {str(e)}")
         return None
 
-# Interface Streamlit
+# Interface principale
 st.title("Carte Topographique et Analyse Spatiale")
 st.markdown("Affichage en EPSG:4326 | Calculs en UTM")
 
 # Initialisation session
-if "layers" not in st.session_state:
-    st.session_state["layers"] = {}
 if "uploaded_layers" not in st.session_state:
     st.session_state["uploaded_layers"] = []
 if "new_features" not in st.session_state:
@@ -159,10 +147,10 @@ if "new_features" not in st.session_state:
 with st.sidebar:
     st.header("Gestion des Données")
     
-    # Gestion UTM
-    utm_choice = st.radio("Mode UTM", ["Auto", "Manuel (29N/30N)"])
+    # Sélection UTM
+    utm_mode = st.radio("Mode UTM", ["Auto", "Manuel (29N/30N)"])
     utm_zone = None
-    if utm_choice == "Manuel (29N/30N)":
+    if utm_mode == "Manuel (29N/30N)":
         utm_zone = st.selectbox("Zone UTM", ["32629", "32630"])
     
     # Téléversement TIFF
@@ -170,11 +158,10 @@ with st.sidebar:
     uploaded_tiff = st.file_uploader("Téléverser TIFF", type=["tif", "tiff"])
     
     if uploaded_tiff and tiff_type:
-        unique_id = str(uuid.uuid4())[:8]
-        temp_path = f"temp_{unique_id}.tiff"
+        temp_path = f"temp_{uuid.uuid4()[:8]}.tiff"
         
         with open(temp_path, "wb") as f:
-            f.write(uploaded_tiff.read())
+            f.write(uploaded_tiff.getbuffer())
         
         try:
             # Reprojection pour affichage
@@ -192,22 +179,25 @@ with st.sidebar:
             # Reprojection pour calcul
             tiff_utm, _ = reproject_tiff(temp_path, utm_crs)
             
-            st.session_state["uploaded_layers"].append({
-                "type": "TIFF",
-                "name": tiff_type,
-                "path_4326": tiff_4326,
-                "path_utm": tiff_utm,
-                "utm_crs": utm_crs,
-                "bounds": bounds
-            })
-            st.success(f"{tiff_type} ajouté!")
+            # Vérification finale avant ajout
+            if tiff_4326 and tiff_utm and utm_crs:
+                st.session_state["uploaded_layers"].append({
+                    "type": "TIFF",
+                    "name": tiff_type,
+                    "path_4326": tiff_4326,
+                    "path_utm": tiff_utm,
+                    "utm_crs": utm_crs,
+                    "bounds": bounds
+                })
+                st.success(f"{tiff_type} ajouté avec succès!")
         
         except Exception as e:
-            st.error(f"Erreur : {str(e)}")
+            st.error(f"Erreur de traitement : {str(e)}")
         finally:
-            os.remove(temp_path)
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
-    # Gestion GeoJSON
+    # Téléversement GeoJSON
     geojson_type = st.selectbox("Type GeoJSON", list(geojson_colors.keys()))
     uploaded_geojson = st.file_uploader("Téléverser GeoJSON", type=["geojson"])
     
@@ -232,27 +222,37 @@ folium.TileLayer(
     name="Satellite"
 ).add_to(m)
 
-# Ajout des couches
+# Ajout des couches avec vérification
 for layer in st.session_state["uploaded_layers"]:
-    if layer["type"] == "TIFF":
-        if layer["name"] in ["MNT", "MNS"]:
-            unique_id = str(uuid.uuid4())[:8]
-            temp_png = f"temp_{unique_id}.png"
-            apply_color_gradient(layer["path_4326"], temp_png)
-            add_image_overlay(m, temp_png, layer["bounds"], layer["name"])
-            os.remove(temp_png)
-        else:
-            add_image_overlay(m, layer["path_4326"], layer["bounds"], layer["name"])
-    elif layer["type"] == "GeoJSON":
-        folium.GeoJson(
-            layer["data"],
-            name=layer["name"],
-            style_function=lambda x, color=layer["color"]: {
-                "color": color,
-                "weight": 4,
-                "opacity": 0.7
-            }
-        ).add_to(m)
+    try:
+        if layer["type"] == "TIFF":
+            if not validate_tiff_layer(layer):
+                st.error(f"Structure invalide pour la couche {layer.get('name', 'inconnue')}")
+                continue
+                
+            if layer["name"] in ["MNT", "MNS"]:
+                temp_png = f"temp_{uuid.uuid4()[:8]}.png"
+                if apply_color_gradient(layer["path_4326"], temp_png):
+                    if add_image_overlay(m, temp_png, layer["bounds"], layer["name"]):
+                        os.remove(temp_png)
+            else:
+                add_image_overlay(m, layer["path_4326"], layer["bounds"], layer["name"])
+                
+        elif layer["type"] == "GeoJSON":
+            folium.GeoJson(
+                layer["data"],
+                name=layer["name"],
+                style_function=lambda x, color=layer["color"]: {
+                    "color": color,
+                    "weight": 4,
+                    "opacity": 0.7
+                }
+            ).add_to(m)
+            
+    except KeyError as e:
+        st.error(f"Clé manquante : {str(e)}")
+    except Exception as e:
+        st.error(f"Erreur de traitement : {str(e)}")
 
 # Contrôles carte
 Draw().add_to(m)
@@ -262,8 +262,8 @@ output = st_folium(m, width=800, height=600)
 
 # Calcul des volumes
 if st.button("Calculer les volumes"):
-    mns_layers = [l for l in st.session_state["uploaded_layers"] if l["name"] == "MNS"]
-    mnt_layers = [l for l in st.session_state["uploaded_layers"] if l["name"] == "MNT"]
+    mns_layers = [l for l in st.session_state["uploaded_layers"] if l.get("name") == "MNS"]
+    mnt_layers = [l for l in st.session_state["uploaded_layers"] if l.get("name") == "MNT"]
     
     if not mns_layers or not mnt_layers:
         st.error("MNS et MNT requis pour le calcul")
@@ -271,12 +271,14 @@ if st.button("Calculer les volumes"):
         mns = mns_layers[0]
         mnt = mnt_layers[0]
         
-        if mns["utm_crs"] != mnt["utm_crs"]:
+        if not validate_tiff_layer(mns) or not validate_tiff_layer(mnt):
+            st.error("Structure de données invalide pour MNS/MNT")
+        elif mns["utm_crs"] != mnt["utm_crs"]:
             st.error("Les couches doivent être dans la même zone UTM")
         else:
             polygons = [
-                f for f in output["all_drawings"] 
-                if f["geometry"]["type"] == "Polygon"
+                f for f in output.get("all_drawings", []) 
+                if f.get("geometry", {}).get("type") == "Polygon"
             ]
             
             if not polygons:
@@ -290,4 +292,4 @@ if st.button("Calculer les volumes"):
                 )
                 
                 if volume is not None:
-                    st.success(f"Volume total : {volume:.2f} m³")
+                    st.success(f"Volume total : {volume:,.2f} m³")
