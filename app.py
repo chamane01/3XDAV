@@ -18,6 +18,7 @@ from rasterio.warp import calculate_default_transform, reproject
 import matplotlib.pyplot as plt
 import os
 import uuid  # Pour générer des identifiants uniques
+from rasterio.features import geometry_mask  # Pour créer des masques à partir de polygones
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -111,55 +112,57 @@ def load_tiff(tiff_path):
             data = src.read(1)
             bounds = src.bounds
             transform = src.transform
-            if transform.is_identity:
-                st.warning("La transformation est invalide. Génération d'une transformation par défaut.")
-                transform, width, height = calculate_default_transform(src.crs, src.crs, src.width, src.height, *src.bounds)
-            st.write(f"Transform: {transform}")
-            st.write(f"Résolution spatiale: {transform.a} m (largeur) x {-transform.e} m (hauteur)")
-        return data, bounds
+            crs = src.crs
+            resolution = (transform.a, -transform.e)  # Résolution spatiale (largeur, hauteur)
+        return data, bounds, transform, crs, resolution
     except Exception as e:
         st.error(f"Erreur lors du chargement du fichier TIFF : {e}")
-        return None, None
+        return None, None, None, None, None
 
 # Fonction pour calculer la surface d'un polygone
-def calculate_surface(polygon, crs="EPSG:4326"):
-    """
-    Calcule la surface d'un polygone en mètres carrés (m²).
+def calculate_polygon_area(polygon, transform):
+    """Calcule la surface d'un polygone en mètres carrés."""
+    # Convertir le polygone en GeoDataFrame
+    gdf = gpd.GeoDataFrame(geometry=[polygon], crs="EPSG:4326")
     
-    :param polygon: Un polygone au format GeoJSON.
-    :param crs: Le système de coordonnées de référence (CRS) du polygone.
-    :return: La surface en mètres carrés (m²).
-    """
-    try:
-        # Convertir le polygone en objet Shapely
-        geom = shape(polygon["geometry"])
-        
-        # Créer un GeoDataFrame avec le polygone
-        gdf = gpd.GeoDataFrame(geometry=[geom], crs=crs)
-        
-        # Reprojecter en un CRS métrique (par exemple, EPSG:3857 pour Web Mercator)
-        gdf = gdf.to_crs("EPSG:3857")  # EPSG:3857 utilise des mètres comme unité
-        
-        # Calculer la surface
-        surface = gdf.geometry.area.values[0]
-        return surface
-    except Exception as e:
-        st.error(f"Erreur lors du calcul de la surface : {e}")
-        return None
+    # Reprojecter en UTM pour obtenir une surface en mètres carrés
+    utm_crs = gdf.estimate_utm_crs()
+    gdf_utm = gdf.to_crs(utm_crs)
+    
+    # Calculer la surface
+    area = gdf_utm.geometry.area.values[0]
+    return area
 
 # Fonction pour calculer le volume pour chaque polygone
-def calculate_volume_for_each_polygon(mns, mnt, bounds, polygons_gdf):
+def calculate_volume_for_each_polygon(mns, mnt, transform, polygons_gdf):
     """Calcule le volume pour chaque polygone individuellement."""
     volumes = []
+    pixel_width = transform.a  # Largeur d'un pixel en mètres
+    pixel_height = -transform.e  # Hauteur d'un pixel en mètres
+
     for idx, polygon in polygons_gdf.iterrows():
         try:
+            # Créer un masque pour le polygone
+            mask = geometry_mask(
+                [polygon.geometry],
+                out_shape=mns.shape,
+                transform=transform,
+                invert=True
+            )
+
             # Masquer les données en dehors du polygone courant
-            mask = polygon.geometry
             mns_masked = np.where(mask, mns, np.nan)
             mnt_masked = np.where(mask, mnt, np.nan)
 
             # Calculer la différence entre MNS et MNT
-            volume = np.nansum(mns_masked - mnt_masked) * (bounds[2] - bounds[0]) * (bounds[3] - bounds[1]) / (mns.shape[0] * mns.shape[1])
+            diff = mns_masked - mnt_masked
+
+            # Calculer la surface du polygone
+            area = calculate_polygon_area(polygon.geometry, transform)
+            st.write(f"Surface du polygone {idx + 1} : {area:.2f} m²")
+
+            # Calculer le volume
+            volume = np.nansum(diff) * pixel_width * pixel_height
             volumes.append(volume)
             st.write(f"Volume pour le polygone {idx + 1} : {volume:.2f} m³")
         except Exception as e:
@@ -172,37 +175,50 @@ def calculate_global_volume(volumes):
     return sum(volumes)
 
 # Fonction pour calculer le volume sans MNT
-def calculate_volume_without_mnt(mns, mns_bounds, polygons_gdf, reference_altitude):
+def calculate_volume_without_mnt(mns, transform, polygons_gdf, reference_altitude):
     """
     Calcule le volume sans utiliser de MNT en utilisant une altitude de référence.
     
     :param mns: Données MNS (Modèle Numérique de Surface)
-    :param mns_bounds: Bornes géographiques du MNS
+    :param transform: Transform du fichier MNS
     :param polygons_gdf: GeoDataFrame contenant les polygones
     :param reference_altitude: Altitude de référence pour le calcul du volume
     :return: Volume positif, volume négatif, volume réel
     """
     positive_volume = 0.0
     negative_volume = 0.0
-    
+    pixel_width = transform.a  # Largeur d'un pixel en mètres
+    pixel_height = -transform.e  # Hauteur d'un pixel en mètres
+
     for idx, polygon in polygons_gdf.iterrows():
         try:
+            # Créer un masque pour le polygone
+            mask = geometry_mask(
+                [polygon.geometry],
+                out_shape=mns.shape,
+                transform=transform,
+                invert=True
+            )
+
             # Masquer les données en dehors du polygone courant
-            mask = polygon.geometry
             mns_masked = np.where(mask, mns, np.nan)
-            
+
             # Calculer la différence entre le MNS et l'altitude de référence
             diff = mns_masked - reference_altitude
-            
+
+            # Calculer la surface du polygone
+            area = calculate_polygon_area(polygon.geometry, transform)
+            st.write(f"Surface du polygone {idx + 1} : {area:.2f} m²")
+
             # Calculer les volumes positif et négatif
-            positive_volume += np.nansum(np.where(diff > 0, diff, 0)) * (mns_bounds[2] - mns_bounds[0]) * (mns_bounds[3] - mns_bounds[1]) / (mns.shape[0] * mns.shape[1])
-            negative_volume += np.nansum(np.where(diff < 0, diff, 0)) * (mns_bounds[2] - mns_bounds[0]) * (mns_bounds[3] - mns_bounds[1]) / (mns.shape[0] * mns.shape[1])
+            positive_volume += np.nansum(np.where(diff > 0, diff, 0)) * pixel_width * pixel_height
+            negative_volume += np.nansum(np.where(diff < 0, diff, 0)) * pixel_width * pixel_height
         except Exception as e:
             st.error(f"Erreur lors du calcul du volume pour le polygone {idx + 1} : {e}")
-    
+
     # Calculer le volume réel (différence entre positif et négatif)
     real_volume = positive_volume + negative_volume
-    
+
     return positive_volume, negative_volume, real_volume
 
 # Fonction pour rechercher des polygones dans les couches téléversées
@@ -298,7 +314,8 @@ with st.sidebar:
         # Ajouter les entités non dupliquées à la couche sélectionnée
         current_layer = st.session_state["layers"][layer_name]
         for feature in st.session_state["new_features"]:
-            if feature not in current_layer:
+            # Vérifier si l'entité est déjà dans la couche
+            if not any(existing_feature["geometry"] == feature["geometry"] for existing_feature in current_layer):
                 current_layer.append(feature)
         st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
         st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
@@ -506,33 +523,9 @@ if 'active_button' not in st.session_state:
 # Fonction pour afficher les paramètres en fonction du bouton cliqué
 def display_parameters(button_name):
     if button_name == "Surfaces et volumes":
-        st.markdown("### Calcul des surfaces et volumes")
-        
-        # Récupérer les polygones des couches téléversées, des couches créées par l'utilisateur et des dessins
-        polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
-        polygons_user_layers = find_polygons_in_user_layers(st.session_state["layers"])
-        polygons_drawn = st.session_state["new_features"]
-
-        # Combiner tous les polygones
-        all_polygons = polygons_uploaded + polygons_user_layers + polygons_drawn
-
-        if not all_polygons:
-            st.error("Aucune polygonale disponible. Veuillez dessiner ou téléverser une polygonale.")
-            return
-
-        # Convertir les polygones en GeoDataFrame
-        polygons_gdf = convert_polygons_to_gdf(all_polygons)
-
-        # Calculer et afficher les surfaces
-        st.markdown("#### Surfaces des polygones")
-        for idx, polygon in enumerate(all_polygons):
-            surface = calculate_surface(polygon)
-            if surface is not None:
-                st.write(f"Surface du polygone {idx + 1} : {surface:.2f} m²")
-
-        # Calcul des volumes (partie existante)
+        st.markdown("### Calcul des volumes")
         method = st.radio(
-            "Choisissez la méthode de calcul des volumes :",
+            "Choisissez la méthode de calcul :",
             ("Méthode 1 : MNS - MNT", "Méthode 2 : MNS seul"),
             key="volume_method"
         )
@@ -549,9 +542,39 @@ def display_parameters(button_name):
             return
 
         # Charger les données
-        mns, mns_bounds = load_tiff(mns_layer["path"])
+        mns, mns_bounds, mns_transform, mns_crs, mns_resolution = load_tiff(mns_layer["path"])
         if method == "Méthode 1 : MNS - MNT":
-            mnt, mnt_bounds = load_tiff(mnt_layer["path"])
+            mnt, mnt_bounds, mnt_transform, mnt_crs, mnt_resolution = load_tiff(mnt_layer["path"])
+
+        # Afficher des informations de débogage
+        st.markdown("### Informations de débogage")
+        st.write(f"**MNS :**")
+        st.write(f"- Hauteur minimale : {np.nanmin(mns):.2f} m")
+        st.write(f"- Hauteur maximale : {np.nanmax(mns):.2f} m")
+        st.write(f"- Projection : {mns_crs}")
+        st.write(f"- Résolution spatiale : {mns_resolution[0]:.2f} m (largeur) x {mns_resolution[1]:.2f} m (hauteur)")
+
+        if method == "Méthode 1 : MNS - MNT":
+            st.write(f"**MNT :**")
+            st.write(f"- Hauteur minimale : {np.nanmin(mnt):.2f} m")
+            st.write(f"- Hauteur maximale : {np.nanmax(mnt):.2f} m")
+            st.write(f"- Projection : {mnt_crs}")
+            st.write(f"- Résolution spatiale : {mnt_resolution[0]:.2f} m (largeur) x {mnt_resolution[1]:.2f} m (hauteur)")
+
+        # Récupérer les polygones des couches téléversées, des couches créées par l'utilisateur et des dessins
+        polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
+        polygons_user_layers = find_polygons_in_user_layers(st.session_state["layers"])
+        polygons_drawn = st.session_state["new_features"]
+
+        # Combiner tous les polygones
+        all_polygons = polygons_uploaded + polygons_user_layers + polygons_drawn
+
+        if not all_polygons:
+            st.error("Aucune polygonale disponible. Veuillez dessiner ou téléverser une polygonale.")
+            return
+
+        # Convertir les polygones en GeoDataFrame
+        polygons_gdf = convert_polygons_to_gdf(all_polygons)
 
         if mns is None or polygons_gdf is None:
             st.error("Erreur lors du chargement des fichiers.")
@@ -563,7 +586,7 @@ def display_parameters(button_name):
                     st.error("Les fichiers doivent avoir les mêmes bornes géographiques.")
                 else:
                     # Calculer le volume pour chaque polygone
-                    volumes = calculate_volume_for_each_polygon(mns, mnt, mnt_bounds, polygons_gdf)
+                    volumes = calculate_volume_for_each_polygon(mns, mnt, mns_transform, polygons_gdf)
                     
                     # Calculer le volume global
                     global_volume = calculate_global_volume(volumes)
@@ -577,7 +600,7 @@ def display_parameters(button_name):
                     key="reference_altitude"
                 )
                 positive_volume, negative_volume, real_volume = calculate_volume_without_mnt(
-                    mns, mns_bounds, polygons_gdf, reference_altitude
+                    mns, mns_transform, polygons_gdf, reference_altitude
                 )
                 st.write(f"Volume positif (au-dessus de la référence) : {positive_volume:.2f} m³")
                 st.write(f"Volume négatif (en dessous de la référence) : {negative_volume:.2f} m³")
