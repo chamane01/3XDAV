@@ -106,25 +106,14 @@ def calculate_geojson_bounds(geojson_data):
 
 # Fonction pour charger un fichier TIFF
 def load_tiff(tiff_path):
-    """Charge un fichier TIFF et retourne les données, les bornes, la transformation, le CRS et la résolution spatiale."""
+    """Charge un fichier TIFF et retourne les données et les bornes."""
     try:
         with rasterio.open(tiff_path) as src:
             data = src.read(1)
             bounds = src.bounds
             transform = src.transform
             crs = src.crs
-
-            # Extraire la résolution spatiale (largeur et hauteur des pixels)
-            if transform.is_identity:
-                st.warning("La transformation est invalide. Génération d'une transformation par défaut.")
-                transform, width, height = calculate_default_transform(src.crs, src.crs, src.width, src.height, *src.bounds)
-            
-            # Résolution spatiale (largeur et hauteur des pixels)
-            resolution = (transform.a, -transform.e)  # transform.a = largeur, transform.e = hauteur (négatif)
-
-            st.write(f"Transform: {transform}")
-            st.write(f"Résolution spatiale: {resolution[0]:.2f} m (largeur) x {resolution[1]:.2f} m (hauteur)")
-
+            resolution = (transform.a, -transform.e)  # Résolution spatiale (largeur, hauteur)
         return data, bounds, transform, crs, resolution
     except Exception as e:
         st.error(f"Erreur lors du chargement du fichier TIFF : {e}")
