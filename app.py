@@ -139,7 +139,7 @@ def validate_projection_and_extent(raster_path, polygons_gdf, target_crs):
 
     return polygons_gdf
 
-# Fonction pour calculer le volume et la surface pour chaque polygone
+# Fonction pour calculer le volume et la surface pour chaque polygone (MNS - MNT)
 def calculate_volume_and_area_for_each_polygon(mns_path, mnt_path, polygons_gdf):
     """Calcule le volume pour chaque polygone avec découpage précis."""
     volumes = []
@@ -165,6 +165,42 @@ def calculate_volume_and_area_for_each_polygon(mns_path, mnt_path, polygons_gdf)
             # Calcul différentiel
             valid_mask = (~np.isnan(mns_data)) & (~np.isnan(mnt_data))
             diff = np.where(valid_mask, mns_data - mnt_data, 0)
+            
+            # Calculs finaux
+            volume = np.sum(diff) * cell_area
+            area = np.count_nonzero(valid_mask) * cell_area
+            
+            volumes.append(volume)
+            areas.append(area)
+            
+            st.write(f"Polygone {idx + 1} - Volume: {volume:.2f} m³, Surface: {area:.2f} m²")
+
+        except Exception as e:
+            st.error(f"Erreur sur le polygone {idx + 1}: {str(e)}")
+    
+    return volumes, areas
+
+# Fonction pour calculer le volume et la surface pour chaque polygone (MNS seul)
+def calculate_volume_and_area_with_mns_only(mns_path, polygons_gdf, reference_altitude):
+    """Calcule le volume et la surface pour chaque polygone en utilisant uniquement le MNS."""
+    volumes = []
+    areas = []
+    
+    # Reprojection des polygones en UTM
+    with rasterio.open(mns_path) as src:
+        polygons_gdf = polygons_gdf.to_crs(src.crs)
+    
+    for idx, polygon in polygons_gdf.iterrows():
+        try:
+            # Découpage du MNS
+            with rasterio.open(mns_path) as src:
+                mns_clipped, mns_transform = mask(src, [polygon.geometry], crop=True, nodata=np.nan)
+                mns_data = mns_clipped[0]
+                cell_area = abs(mns_transform.a * mns_transform.e)  # Surface par cellule
+
+            # Calcul différentiel par rapport à l'altitude de référence
+            valid_mask = ~np.isnan(mns_data)
+            diff = np.where(valid_mask, mns_data - reference_altitude, 0)
             
             # Calculs finaux
             volume = np.sum(diff) * cell_area
@@ -536,17 +572,31 @@ def display_parameters(button_name):
             polygons_gdf_utm = validate_projection_and_extent(mns_utm_path, polygons_gdf, "EPSG:32630")
             
             if method == "Méthode 1 : MNS - MNT":
-                # Calcul avec les nouvelles fonctions
+                # Calcul avec MNS et MNT
                 volumes, areas = calculate_volume_and_area_for_each_polygon(
                     mns_utm_path, 
                     mnt_utm_path,
                     polygons_gdf_utm
                 )
-                
-                global_volume = calculate_global_volume(volumes)
-                global_area = calculate_global_area(areas)
-                st.write(f"Volume global : {global_volume:.2f} m³")
-                st.write(f"Surface globale : {global_area:.2f} m²")
+            else:
+                # Calcul avec MNS seul
+                reference_altitude = st.number_input(
+                    "Entrez l'altitude de référence (en mètres) :",
+                    value=0.0,
+                    step=0.1,
+                    key="reference_altitude"
+                )
+                volumes, areas = calculate_volume_and_area_with_mns_only(
+                    mns_utm_path,
+                    polygons_gdf_utm,
+                    reference_altitude
+                )
+            
+            # Calcul des volumes et surfaces globaux
+            global_volume = calculate_global_volume(volumes)
+            global_area = calculate_global_area(areas)
+            st.write(f"Volume global : {global_volume:.2f} m³")
+            st.write(f"Surface globale : {global_area:.2f} m²")
             
             # Nettoyage des fichiers temporaires
             os.remove(mns_utm_path)
