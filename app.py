@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 import os
 import uuid  # Pour générer des identifiants uniques
 from rasterio.mask import mask
+from shapely.geometry import LineString as ShapelyLineString
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -180,14 +181,31 @@ def calculate_volume_and_area_for_each_polygon(mns_path, mnt_path, polygons_gdf)
     
     return volumes, areas
 
-# Fonction pour calculer la cote moyenne des élévations à la base d'une polygonale
-def calculate_average_elevation(mns_path, polygon):
-    """Calcule la cote moyenne des élévations à la base d'une polygonale."""
+# Fonction pour extraire les points sur les bords d'une polygonale
+def extract_boundary_points(polygon):
+    """Extrait les points situés sur les bords d'une polygonale."""
+    boundary = polygon.boundary
+    if isinstance(boundary, ShapelyLineString):
+        return list(boundary.coords)
+    else:
+        # Si la polygonale a des trous, on prend uniquement le contour extérieur
+        return list(polygon.exterior.coords)
+
+# Fonction pour calculer la cote moyenne des élévations sur les bords de la polygonale
+def calculate_average_elevation_on_boundary(mns_path, polygon):
+    """Calcule la cote moyenne des élévations sur les bords de la polygonale."""
     with rasterio.open(mns_path) as src:
-        mns_clipped, _ = mask(src, [polygon], crop=True, nodata=np.nan)
-        mns_data = mns_clipped[0]
-        valid_mask = ~np.isnan(mns_data)
-        average_elevation = np.mean(mns_data[valid_mask])
+        # Extraire les points sur les bords de la polygonale
+        boundary_points = extract_boundary_points(polygon)
+        
+        # Convertir les points en coordonnées raster
+        boundary_coords = [src.index(x, y) for (x, y) in boundary_points]
+        
+        # Extraire les élévations sur les bords
+        elevations = [src.read(1)[int(row), int(col)] for (row, col) in boundary_coords]
+        
+        # Calculer la cote moyenne
+        average_elevation = np.mean(elevations)
     return average_elevation
 
 # Fonction pour calculer le volume et la surface pour chaque polygone (MNS seul)
@@ -210,7 +228,7 @@ def calculate_volume_and_area_with_mns_only(mns_path, polygons_gdf, use_average_
 
             # Calcul de la cote de référence
             if use_average_elevation:
-                reference_altitude = calculate_average_elevation(mns_path, polygon.geometry)
+                reference_altitude = calculate_average_elevation_on_boundary(mns_path, polygon.geometry)
             elif reference_altitude is None:
                 st.error("Veuillez fournir une altitude de référence.")
                 return [], []
@@ -598,7 +616,7 @@ def display_parameters(button_name):
             else:
                 # Choix de la méthode de calcul pour MNS seul
                 use_average_elevation = st.checkbox(
-                    "Utiliser la cote moyenne des élévations de la polygonale comme référence",
+                    "Utiliser la cote moyenne des élévations sur les bords de la polygonale comme référence",
                     value=True,
                     key="use_average_elevation"
                 )
