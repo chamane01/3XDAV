@@ -524,15 +524,28 @@ def display_parameters(button_name):
 
         try:
             if method == "Méthode 1 : MNS - MNT":
-                if mnt is None or mnt_bounds != mns_bounds:
+                # Reprojection des fichiers MNS et MNT en UTM
+                mns_utm_path = reproject_tiff(mns_layer["path"], "EPSG:32630")
+                mnt_utm_path = reproject_tiff(mnt_layer["path"], "EPSG:32630")
+                
+                # Charger les données MNS et MNT reprojetées en UTM
+                mns_utm, mns_utm_bounds = load_tiff(mns_utm_path)
+                mnt_utm, mnt_utm_bounds = load_tiff(mnt_utm_path)
+                
+                # Reprojection des polygones en UTM
+                polygons_gdf_utm = polygons_gdf.to_crs("EPSG:32630")
+                
+                # Calcul du volume avec les données UTM
+                if mnt_utm is None or mnt_utm_bounds != mns_utm_bounds:
                     st.error("Les fichiers doivent avoir les mêmes bornes géographiques.")
                 else:
-                    # Calculer le volume pour chaque polygone
-                    volumes = calculate_volume_for_each_polygon(mns, mnt, mnt_bounds, polygons_gdf)
-                    
-                    # Calculer le volume global
+                    volumes = calculate_volume_for_each_polygon(mns_utm, mnt_utm, mnt_utm_bounds, polygons_gdf_utm)
                     global_volume = calculate_global_volume(volumes)
                     st.write(f"Volume global : {global_volume:.2f} m³")
+                
+                # Suppression des fichiers temporaires
+                os.remove(mns_utm_path)
+                os.remove(mnt_utm_path)
             else:
                 # Saisie de l'altitude de référence pour la méthode 2
                 reference_altitude = st.number_input(
