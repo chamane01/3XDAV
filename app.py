@@ -114,7 +114,6 @@ def load_tiff(tiff_path):
             if transform.is_identity:
                 st.warning("La transformation est invalide. Génération d'une transformation par défaut.")
                 transform, width, height = calculate_default_transform(src.crs, src.crs, src.width, src.height, *src.bounds)
-            st.write(f"Résolution spatiale: {transform.a} m (largeur) x {-transform.e} m (hauteur)")
         return data, bounds, transform
     except Exception as e:
         st.error(f"Erreur lors du chargement du fichier TIFF : {e}")
