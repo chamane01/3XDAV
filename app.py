@@ -174,7 +174,9 @@ def calculate_volume_and_area_for_each_polygon(mns_path, mnt_path, polygons_gdf)
             volumes.append(volume)
             areas.append(area)
             
-            st.write(f"Polygone {idx + 1} - Volume: {volume:.2f} m³, Surface: {area:.2f} m²")
+            # Récupérer le nom de la polygonale
+            polygon_name = polygon.get("properties", {}).get("name", f"Polygone {idx + 1}")
+            st.write(f"{polygon_name} - Volume: {volume:.2f} m³, Surface: {area:.2f} m²")
 
         except Exception as e:
             st.error(f"Erreur sur le polygone {idx + 1}: {str(e)}")
@@ -244,7 +246,9 @@ def calculate_volume_and_area_with_mns_only(mns_path, polygons_gdf, use_average_
             volumes.append(volume)
             areas.append(area)
             
-            st.write(f"Polygone {idx + 1} - Volume: {volume:.2f} m³, Surface: {area:.2f} m², Cote de référence: {reference_altitude:.2f} m")
+            # Récupérer le nom de la polygonale
+            polygon_name = polygon.get("properties", {}).get("name", f"Polygone {idx + 1}")
+            st.write(f"{polygon_name} - Volume: {volume:.2f} m³, Surface: {area:.2f} m², Cote de référence: {reference_altitude:.2f} m")
 
         except Exception as e:
             st.error(f"Erreur sur le polygone {idx + 1}: {str(e)}")
@@ -287,17 +291,22 @@ def find_polygons_in_user_layers(layers):
 def convert_polygons_to_gdf(polygons):
     """Convertit une liste de polygones en GeoDataFrame."""
     geometries = [shape(polygon["geometry"]) for polygon in polygons]
+    properties = [polygon.get("properties", {}) for polygon in polygons]
     gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")
+    gdf["properties"] = properties
     return gdf
 
 # Fonction pour convertir les entités dessinées en GeoDataFrame
 def convert_drawn_features_to_gdf(features):
     """Convertit les entités dessinées en GeoDataFrame."""
     geometries = []
+    properties = []
     for feature in features:
         geom = shape(feature["geometry"])
         geometries.append(geom)
+        properties.append(feature.get("properties", {}))
     gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")
+    gdf["properties"] = properties
     return gdf
 
 # Initialisation des couches et des entités dans la session Streamlit
