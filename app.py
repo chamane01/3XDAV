@@ -120,7 +120,7 @@ def load_tiff(tiff_path):
         st.error(f"Erreur lors du chargement du fichier TIFF : {e}")
         return None, None, None
 
-# Nouvelle fonction de validation de projection et d'emprise
+# Fonction de validation de projection et d'emprise
 def validate_projection_and_extent(raster_path, polygons_gdf, target_crs):
     """Vérifie la projection et l'emprise des polygones par rapport au raster."""
     with rasterio.open(raster_path) as src:
@@ -134,12 +134,12 @@ def validate_projection_and_extent(raster_path, polygons_gdf, target_crs):
         # Vérification de l'emprise
         raster_bounds = src.bounds
         for idx, row in polygons_gdf.iterrows():
-            if not row.geometry.intersects(Box(*raster_bounds)):
+            if not row.geometry.intersects(Polygon.from_bounds(*raster_bounds)):
                 st.warning(f"Le polygone {idx} est en dehors de l'emprise du raster")
 
     return polygons_gdf
 
-# Fonction modifiée pour le calcul de volume avec découpage précis
+# Fonction pour calculer le volume et la surface pour chaque polygone
 def calculate_volume_and_area_for_each_polygon(mns_path, mnt_path, polygons_gdf):
     """Calcule le volume pour chaque polygone avec découpage précis."""
     volumes = []
@@ -179,80 +179,6 @@ def calculate_volume_and_area_for_each_polygon(mns_path, mnt_path, polygons_gdf)
             st.error(f"Erreur sur le polygone {idx + 1}: {str(e)}")
     
     return volumes, areas
-
-# ... [Le reste du code existant jusqu'à la section d'analyse spatiale] ...
-
-def display_parameters(button_name):
-    if button_name == "Surfaces et volumes":
-        st.markdown("### Calcul des volumes et des surfaces")
-        method = st.radio(
-            "Choisissez la méthode de calcul :",
-            ("Méthode 1 : MNS - MNT", "Méthode 2 : MNS seul"),
-            key="volume_method"
-        )
-
-        # Récupérer les couches nécessaires
-        mns_layer = next((layer for layer in st.session_state["uploaded_layers"] if layer["name"] == "MNS"), None)
-        mnt_layer = next((layer for layer in st.session_state["uploaded_layers"] if layer["name"] == "MNT"), None)
-
-        if not mns_layer:
-            st.error("La couche MNS est manquante. Veuillez téléverser un fichier MNS.")
-            return
-        if method == "Méthode 1 : MNS - MNT" and not mnt_layer:
-            st.error("La couche MNT est manquante. Veuillez téléverser un fichier MNT.")
-            return
-
-        # Reprojection des fichiers en UTM
-        try:
-            mns_utm_path = reproject_tiff(mns_layer["path"], "EPSG:32630")
-            if method == "Méthode 1 : MNS - MNT":
-                mnt_utm_path = reproject_tiff(mnt_layer["path"], "EPSG:32630")
-        except Exception as e:
-            st.error(f"Échec de la reprojection : {e}")
-            return
-
-        # Récupération des polygones
-        polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
-        polygons_user_layers = find_polygons_in_user_layers(st.session_state["layers"])
-        polygons_drawn = st.session_state["new_features"]
-        all_polygons = polygons_uploaded + polygons_user_layers + polygons_drawn
-
-        if not all_polygons:
-            st.error("Aucune polygonale disponible.")
-            return
-
-        # Conversion en GeoDataFrame
-        polygons_gdf = convert_polygons_to_gdf(all_polygons)
-
-        try:
-            # Validation des données
-            polygons_gdf_utm = validate_projection_and_extent(mns_utm_path, polygons_gdf, "EPSG:32630")
-            
-            if method == "Méthode 1 : MNS - MNT":
-                # Calcul avec les nouvelles fonctions
-                volumes, areas = calculate_volume_and_area_for_each_polygon(
-                    mns_utm_path, 
-                    mnt_utm_path,
-                    polygons_gdf_utm
-                )
-                
-                global_volume = calculate_global_volume(volumes)
-                global_area = calculate_global_area(areas)
-                st.write(f"Volume global : {global_volume:.2f} m³")
-                st.write(f"Surface globale : {global_area:.2f} m²")
-            
-            # Nettoyage des fichiers temporaires
-            os.remove(mns_utm_path)
-            if method == "Méthode 1 : MNS - MNT":
-                os.remove(mnt_utm_path)
-
-        except Exception as e:
-            st.error(f"Erreur lors du calcul : {e}")
-            # Nettoyage en cas d'erreur
-            if os.path.exists(mns_utm_path):
-                os.remove(mns_utm_path)
-            if method == "Méthode 1 : MNS - MNT" and os.path.exists(mnt_utm_path):
-                os.remove(mnt_utm_path)
 
 # Fonction pour calculer le volume global
 def calculate_global_volume(volumes):
@@ -583,73 +509,57 @@ def display_parameters(button_name):
             st.error("La couche MNT est manquante. Veuillez téléverser un fichier MNT.")
             return
 
-        # Charger les données
-        mns, mns_bounds, mns_transform = load_tiff(mns_layer["path"])
-        if method == "Méthode 1 : MNS - MNT":
-            mnt, mnt_bounds, mnt_transform = load_tiff(mnt_layer["path"])
+        # Reprojection des fichiers en UTM
+        try:
+            mns_utm_path = reproject_tiff(mns_layer["path"], "EPSG:32630")
+            if method == "Méthode 1 : MNS - MNT":
+                mnt_utm_path = reproject_tiff(mnt_layer["path"], "EPSG:32630")
+        except Exception as e:
+            st.error(f"Échec de la reprojection : {e}")
+            return
 
-        # Récupérer les polygones des couches téléversées, des couches créées par l'utilisateur et des dessins
+        # Récupération des polygones
         polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
         polygons_user_layers = find_polygons_in_user_layers(st.session_state["layers"])
         polygons_drawn = st.session_state["new_features"]
-
-        # Combiner tous les polygones
         all_polygons = polygons_uploaded + polygons_user_layers + polygons_drawn
 
         if not all_polygons:
-            st.error("Aucune polygonale disponible. Veuillez dessiner ou téléverser une polygonale.")
+            st.error("Aucune polygonale disponible.")
             return
 
-        # Convertir les polygones en GeoDataFrame
+        # Conversion en GeoDataFrame
         polygons_gdf = convert_polygons_to_gdf(all_polygons)
 
-        if mns is None or polygons_gdf is None:
-            st.error("Erreur lors du chargement des fichiers.")
-            return
-
         try:
+            # Validation des données
+            polygons_gdf_utm = validate_projection_and_extent(mns_utm_path, polygons_gdf, "EPSG:32630")
+            
             if method == "Méthode 1 : MNS - MNT":
-                # Reprojection des fichiers MNS et MNT en UTM
-                mns_utm_path = reproject_tiff(mns_layer["path"], "EPSG:32630")
-                mnt_utm_path = reproject_tiff(mnt_layer["path"], "EPSG:32630")
+                # Calcul avec les nouvelles fonctions
+                volumes, areas = calculate_volume_and_area_for_each_polygon(
+                    mns_utm_path, 
+                    mnt_utm_path,
+                    polygons_gdf_utm
+                )
                 
-                # Charger les données MNS et MNT reprojetées en UTM
-                mns_utm, mns_utm_bounds, mns_utm_transform = load_tiff(mns_utm_path)
-                mnt_utm, mnt_utm_bounds, mnt_utm_transform = load_tiff(mnt_utm_path)
-                
-                # Reprojection des polygones en UTM
-                polygons_gdf_utm = polygons_gdf.to_crs("EPSG:32630")
-                
-                # Calcul du volume et de la surface avec les données UTM
-                if mnt_utm is None or mnt_utm_bounds != mns_utm_bounds:
-                    st.error("Les fichiers doivent avoir les mêmes bornes géographiques.")
-                else:
-                    volumes, areas = calculate_volume_and_area_for_each_polygon(mns_utm, mnt_utm, mns_utm_transform, polygons_gdf_utm)
-                    global_volume = calculate_global_volume(volumes)
-                    global_area = calculate_global_area(areas)
-                    st.write(f"Volume global : {global_volume:.2f} m³")
-                    st.write(f"Surface globale : {global_area:.2f} m²")
-                
-                # Suppression des fichiers temporaires
-                os.remove(mns_utm_path)
+                global_volume = calculate_global_volume(volumes)
+                global_area = calculate_global_area(areas)
+                st.write(f"Volume global : {global_volume:.2f} m³")
+                st.write(f"Surface globale : {global_area:.2f} m²")
+            
+            # Nettoyage des fichiers temporaires
+            os.remove(mns_utm_path)
+            if method == "Méthode 1 : MNS - MNT":
                 os.remove(mnt_utm_path)
-            else:
-                # Saisie de l'altitude de référence pour la méthode 2
-                reference_altitude = st.number_input(
-                    "Entrez l'altitude de référence (en mètres) :",
-                    value=0.0,
-                    step=0.1,
-                    key="reference_altitude"
-                )
-                positive_volume, negative_volume, real_volume = calculate_volume_without_mnt(
-                    mns, mns_bounds, polygons_gdf, reference_altitude
-                )
-                st.write(f"Volume positif (au-dessus de la référence) : {positive_volume:.2f} m³")
-                st.write(f"Volume négatif (en dessous de la référence) : {negative_volume:.2f} m³")
-                st.write(f"Volume réel (différence) : {real_volume:.2f} m³")
 
         except Exception as e:
-            st.error(f"Erreur lors du calcul du volume ou de la surface : {e}")
+            st.error(f"Erreur lors du calcul : {e}")
+            # Nettoyage en cas d'erreur
+            if os.path.exists(mns_utm_path):
+                os.remove(mns_utm_path)
+            if method == "Méthode 1 : MNS - MNT" and os.path.exists(mnt_utm_path):
+                os.remove(mnt_utm_path)
 
 # Ajout des boutons pour les analyses spatiales
 st.markdown("### Analyse Spatiale")
