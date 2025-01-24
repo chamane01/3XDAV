@@ -18,6 +18,7 @@ from rasterio.warp import calculate_default_transform, reproject
 import matplotlib.pyplot as plt
 import os
 import uuid  # Pour générer des identifiants uniques
+from rasterio.mask import mask
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -119,32 +120,139 @@ def load_tiff(tiff_path):
         st.error(f"Erreur lors du chargement du fichier TIFF : {e}")
         return None, None, None
 
-# Fonction pour calculer le volume et la surface pour chaque polygone
-def calculate_volume_and_area_for_each_polygon(mns, mnt, transform, polygons_gdf):
-    """Calcule le volume et la surface pour chaque polygone individuellement."""
+# Nouvelle fonction de validation de projection et d'emprise
+def validate_projection_and_extent(raster_path, polygons_gdf, target_crs):
+    """Vérifie la projection et l'emprise des polygones par rapport au raster."""
+    with rasterio.open(raster_path) as src:
+        # Vérification CRS
+        if src.crs != target_crs:
+            raise ValueError(f"Le raster {raster_path} n'est pas dans la projection {target_crs}")
+
+        # Conversion des polygones vers le CRS du raster
+        polygons_gdf = polygons_gdf.to_crs(src.crs)
+        
+        # Vérification de l'emprise
+        raster_bounds = src.bounds
+        for idx, row in polygons_gdf.iterrows():
+            if not row.geometry.intersects(Box(*raster_bounds)):
+                st.warning(f"Le polygone {idx} est en dehors de l'emprise du raster")
+
+    return polygons_gdf
+
+# Fonction modifiée pour le calcul de volume avec découpage précis
+def calculate_volume_and_area_for_each_polygon(mns_path, mnt_path, polygons_gdf):
+    """Calcule le volume pour chaque polygone avec découpage précis."""
     volumes = []
     areas = []
+    
+    # Reprojection des polygones en UTM
+    with rasterio.open(mns_path) as src:
+        polygons_gdf = polygons_gdf.to_crs(src.crs)
+    
     for idx, polygon in polygons_gdf.iterrows():
         try:
-            # Masquer les données en dehors du polygone courant
-            mask = polygon.geometry
-            mns_masked = np.where(mask, mns, np.nan)
-            mnt_masked = np.where(mask, mnt, np.nan)
+            # Découpage du MNS
+            with rasterio.open(mns_path) as src:
+                mns_clipped, mns_transform = mask(src, [polygon.geometry], crop=True, nodata=np.nan)
+                mns_data = mns_clipped[0]
+                cell_area = abs(mns_transform.a * mns_transform.e)  # Surface par cellule
 
-            # Calculer la différence entre MNS et MNT
-            diff = mns_masked - mnt_masked
-            volume = np.nansum(diff) * transform.a * -transform.e  # Volume en m³
+            # Découpage du MNT
+            with rasterio.open(mnt_path) as src:
+                mnt_clipped, _ = mask(src, [polygon.geometry], crop=True, nodata=np.nan)
+                mnt_data = mnt_clipped[0]
+
+            # Calcul différentiel
+            valid_mask = (~np.isnan(mns_data)) & (~np.isnan(mnt_data))
+            diff = np.where(valid_mask, mns_data - mnt_data, 0)
+            
+            # Calculs finaux
+            volume = np.sum(diff) * cell_area
+            area = np.count_nonzero(valid_mask) * cell_area
+            
             volumes.append(volume)
-
-            # Calculer la surface du polygone
-            area = polygon.geometry.area  # Surface en m²
             areas.append(area)
+            
+            st.write(f"Polygone {idx + 1} - Volume: {volume:.2f} m³, Surface: {area:.2f} m²")
 
-            st.write(f"Volume pour le polygone {idx + 1} : {volume:.2f} m³")
-            st.write(f"Surface pour le polygone {idx + 1} : {area:.2f} m²")
         except Exception as e:
-            st.error(f"Erreur lors du calcul du volume ou de la surface pour le polygone {idx + 1} : {e}")
+            st.error(f"Erreur sur le polygone {idx + 1}: {str(e)}")
+    
     return volumes, areas
+
+# ... [Le reste du code existant jusqu'à la section d'analyse spatiale] ...
+
+def display_parameters(button_name):
+    if button_name == "Surfaces et volumes":
+        st.markdown("### Calcul des volumes et des surfaces")
+        method = st.radio(
+            "Choisissez la méthode de calcul :",
+            ("Méthode 1 : MNS - MNT", "Méthode 2 : MNS seul"),
+            key="volume_method"
+        )
+
+        # Récupérer les couches nécessaires
+        mns_layer = next((layer for layer in st.session_state["uploaded_layers"] if layer["name"] == "MNS"), None)
+        mnt_layer = next((layer for layer in st.session_state["uploaded_layers"] if layer["name"] == "MNT"), None)
+
+        if not mns_layer:
+            st.error("La couche MNS est manquante. Veuillez téléverser un fichier MNS.")
+            return
+        if method == "Méthode 1 : MNS - MNT" and not mnt_layer:
+            st.error("La couche MNT est manquante. Veuillez téléverser un fichier MNT.")
+            return
+
+        # Reprojection des fichiers en UTM
+        try:
+            mns_utm_path = reproject_tiff(mns_layer["path"], "EPSG:32630")
+            if method == "Méthode 1 : MNS - MNT":
+                mnt_utm_path = reproject_tiff(mnt_layer["path"], "EPSG:32630")
+        except Exception as e:
+            st.error(f"Échec de la reprojection : {e}")
+            return
+
+        # Récupération des polygones
+        polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
+        polygons_user_layers = find_polygons_in_user_layers(st.session_state["layers"])
+        polygons_drawn = st.session_state["new_features"]
+        all_polygons = polygons_uploaded + polygons_user_layers + polygons_drawn
+
+        if not all_polygons:
+            st.error("Aucune polygonale disponible.")
+            return
+
+        # Conversion en GeoDataFrame
+        polygons_gdf = convert_polygons_to_gdf(all_polygons)
+
+        try:
+            # Validation des données
+            polygons_gdf_utm = validate_projection_and_extent(mns_utm_path, polygons_gdf, "EPSG:32630")
+            
+            if method == "Méthode 1 : MNS - MNT":
+                # Calcul avec les nouvelles fonctions
+                volumes, areas = calculate_volume_and_area_for_each_polygon(
+                    mns_utm_path, 
+                    mnt_utm_path,
+                    polygons_gdf_utm
+                )
+                
+                global_volume = calculate_global_volume(volumes)
+                global_area = calculate_global_area(areas)
+                st.write(f"Volume global : {global_volume:.2f} m³")
+                st.write(f"Surface globale : {global_area:.2f} m²")
+            
+            # Nettoyage des fichiers temporaires
+            os.remove(mns_utm_path)
+            if method == "Méthode 1 : MNS - MNT":
+                os.remove(mnt_utm_path)
+
+        except Exception as e:
+            st.error(f"Erreur lors du calcul : {e}")
+            # Nettoyage en cas d'erreur
+            if os.path.exists(mns_utm_path):
+                os.remove(mns_utm_path)
+            if method == "Méthode 1 : MNS - MNT" and os.path.exists(mnt_utm_path):
+                os.remove(mnt_utm_path)
 
 # Fonction pour calculer le volume global
 def calculate_global_volume(volumes):
