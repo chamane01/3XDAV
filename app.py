@@ -180,8 +180,18 @@ def calculate_volume_and_area_for_each_polygon(mns_path, mnt_path, polygons_gdf)
     
     return volumes, areas
 
+# Fonction pour calculer la cote moyenne des élévations à la base d'une polygonale
+def calculate_average_elevation(mns_path, polygon):
+    """Calcule la cote moyenne des élévations à la base d'une polygonale."""
+    with rasterio.open(mns_path) as src:
+        mns_clipped, _ = mask(src, [polygon], crop=True, nodata=np.nan)
+        mns_data = mns_clipped[0]
+        valid_mask = ~np.isnan(mns_data)
+        average_elevation = np.mean(mns_data[valid_mask])
+    return average_elevation
+
 # Fonction pour calculer le volume et la surface pour chaque polygone (MNS seul)
-def calculate_volume_and_area_with_mns_only(mns_path, polygons_gdf, reference_altitude):
+def calculate_volume_and_area_with_mns_only(mns_path, polygons_gdf, use_average_elevation=True, reference_altitude=None):
     """Calcule le volume et la surface pour chaque polygone en utilisant uniquement le MNS."""
     volumes = []
     areas = []
@@ -198,7 +208,14 @@ def calculate_volume_and_area_with_mns_only(mns_path, polygons_gdf, reference_al
                 mns_data = mns_clipped[0]
                 cell_area = abs(mns_transform.a * mns_transform.e)  # Surface par cellule
 
-            # Calcul différentiel par rapport à l'altitude de référence
+            # Calcul de la cote de référence
+            if use_average_elevation:
+                reference_altitude = calculate_average_elevation(mns_path, polygon.geometry)
+            elif reference_altitude is None:
+                st.error("Veuillez fournir une altitude de référence.")
+                return [], []
+
+            # Calcul différentiel par rapport à la cote de référence
             valid_mask = ~np.isnan(mns_data)
             diff = np.where(valid_mask, mns_data - reference_altitude, 0)
             
@@ -209,7 +226,7 @@ def calculate_volume_and_area_with_mns_only(mns_path, polygons_gdf, reference_al
             volumes.append(volume)
             areas.append(area)
             
-            st.write(f"Polygone {idx + 1} - Volume: {volume:.2f} m³, Surface: {area:.2f} m²")
+            st.write(f"Polygone {idx + 1} - Volume: {volume:.2f} m³, Surface: {area:.2f} m², Cote de référence: {reference_altitude:.2f} m")
 
         except Exception as e:
             st.error(f"Erreur sur le polygone {idx + 1}: {str(e)}")
@@ -579,17 +596,27 @@ def display_parameters(button_name):
                     polygons_gdf_utm
                 )
             else:
-                # Calcul avec MNS seul
-                reference_altitude = st.number_input(
-                    "Entrez l'altitude de référence (en mètres) :",
-                    value=0.0,
-                    step=0.1,
-                    key="reference_altitude"
+                # Choix de la méthode de calcul pour MNS seul
+                use_average_elevation = st.checkbox(
+                    "Utiliser la cote moyenne des élévations de la polygonale comme référence",
+                    value=True,
+                    key="use_average_elevation"
                 )
+                reference_altitude = None
+                if not use_average_elevation:
+                    reference_altitude = st.number_input(
+                        "Entrez l'altitude de référence (en mètres) :",
+                        value=0.0,
+                        step=0.1,
+                        key="reference_altitude"
+                    )
+                
+                # Calcul avec MNS seul
                 volumes, areas = calculate_volume_and_area_with_mns_only(
                     mns_utm_path,
                     polygons_gdf_utm,
-                    reference_altitude
+                    use_average_elevation=use_average_elevation,
+                    reference_altitude=reference_altitude
                 )
             
             # Calcul des volumes et surfaces globaux
