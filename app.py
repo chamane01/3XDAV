@@ -121,10 +121,11 @@ def load_tiff(tiff_path):
         st.error(f"Erreur lors du chargement du fichier TIFF : {e}")
         return None, None
 
-# Fonction pour calculer le volume pour chaque polygone
-def calculate_volume_for_each_polygon(mns, mnt, bounds, polygons_gdf):
-    """Calcule le volume pour chaque polygone individuellement."""
+# Fonction pour calculer le volume et la surface pour chaque polygone
+def calculate_volume_and_area_for_each_polygon(mns, mnt, bounds, polygons_gdf):
+    """Calcule le volume et la surface pour chaque polygone individuellement."""
     volumes = []
+    areas = []
     for idx, polygon in polygons_gdf.iterrows():
         try:
             # Masquer les données en dehors du polygone courant
@@ -135,15 +136,26 @@ def calculate_volume_for_each_polygon(mns, mnt, bounds, polygons_gdf):
             # Calculer la différence entre MNS et MNT
             volume = np.nansum(mns_masked - mnt_masked) * (bounds[2] - bounds[0]) * (bounds[3] - bounds[1]) / (mns.shape[0] * mns.shape[1])
             volumes.append(volume)
+
+            # Calculer la surface du polygone
+            area = polygon.geometry.area
+            areas.append(area)
+
             st.write(f"Volume pour le polygone {idx + 1} : {volume:.2f} m³")
+            st.write(f"Surface pour le polygone {idx + 1} : {area:.2f} m²")
         except Exception as e:
-            st.error(f"Erreur lors du calcul du volume pour le polygone {idx + 1} : {e}")
-    return volumes
+            st.error(f"Erreur lors du calcul du volume ou de la surface pour le polygone {idx + 1} : {e}")
+    return volumes, areas
 
 # Fonction pour calculer le volume global
 def calculate_global_volume(volumes):
     """Calcule le volume global en additionnant les volumes individuels."""
     return sum(volumes)
+
+# Fonction pour calculer la surface globale
+def calculate_global_area(areas):
+    """Calcule la surface globale en additionnant les surfaces individuelles."""
+    return sum(areas)
 
 # Fonction pour calculer le volume sans MNT
 def calculate_volume_without_mnt(mns, mns_bounds, polygons_gdf, reference_altitude):
@@ -480,7 +492,7 @@ if 'active_button' not in st.session_state:
 # Fonction pour afficher les paramètres en fonction du bouton cliqué
 def display_parameters(button_name):
     if button_name == "Surfaces et volumes":
-        st.markdown("### Calcul des volumes")
+        st.markdown("### Calcul des volumes et des surfaces")
         method = st.radio(
             "Choisissez la méthode de calcul :",
             ("Méthode 1 : MNS - MNT", "Méthode 2 : MNS seul"),
@@ -535,13 +547,15 @@ def display_parameters(button_name):
                 # Reprojection des polygones en UTM
                 polygons_gdf_utm = polygons_gdf.to_crs("EPSG:32630")
                 
-                # Calcul du volume avec les données UTM
+                # Calcul du volume et de la surface avec les données UTM
                 if mnt_utm is None or mnt_utm_bounds != mns_utm_bounds:
                     st.error("Les fichiers doivent avoir les mêmes bornes géographiques.")
                 else:
-                    volumes = calculate_volume_for_each_polygon(mns_utm, mnt_utm, mnt_utm_bounds, polygons_gdf_utm)
+                    volumes, areas = calculate_volume_and_area_for_each_polygon(mns_utm, mnt_utm, mnt_utm_bounds, polygons_gdf_utm)
                     global_volume = calculate_global_volume(volumes)
+                    global_area = calculate_global_area(areas)
                     st.write(f"Volume global : {global_volume:.2f} m³")
+                    st.write(f"Surface globale : {global_area:.2f} m²")
                 
                 # Suppression des fichiers temporaires
                 os.remove(mns_utm_path)
@@ -562,7 +576,7 @@ def display_parameters(button_name):
                 st.write(f"Volume réel (différence) : {real_volume:.2f} m³")
 
         except Exception as e:
-            st.error(f"Erreur lors du calcul du volume : {e}")
+            st.error(f"Erreur lors du calcul du volume ou de la surface : {e}")
 
 # Ajout des boutons pour les analyses spatiales
 st.markdown("### Analyse Spatiale")
