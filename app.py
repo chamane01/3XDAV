@@ -1,92 +1,136 @@
 import streamlit as st
 import geopandas as gpd
-from shapely.geometry import Polygon, LineString
 import matplotlib.pyplot as plt
-import numpy as np
+from shapely.geometry import Polygon, MultiPolygon, LineString
+from shapely.ops import split, unary_union
+import tempfile
+import os
 
+st.title("🛣️ Morcellement de Polygonale pour Lotissement")
 
-def generate_lots(polygon, lot_size, road_width, buffer_distance, lot_shape="rectangle"):
-    """
-    Génère des lots dans une polygonale en tenant compte des servitudes et des routes.
-    polygon : Shapely Polygon
-    lot_size : Surface d'un lot en m²
-    road_width : Largeur des routes entre les lots
-    buffer_distance : Servitude à appliquer en bordure
-    lot_shape : Forme préférée des lots ("rectangle" ou "carré")
-    """
-    # Appliquer la servitude en bordure
-    buffered_polygon = polygon.buffer(-buffer_distance)
+# Sidebar pour les paramètres
+with st.sidebar:
+    st.header("Paramètres de Morcellement")
+    lot_area = st.number_input("Superficie désirée par lot (m²)", min_value=100, value=500)
+    min_lot_width = st.number_input("Largeur minimale des lots (m)", min_value=5, value=10)
+    road_width = st.number_input("Largeur des voies (m)", min_value=3, value=8)
+    border_setback = st.number_input("Servitude de bordure (m)", min_value=0, value=5)
+    spacing = st.number_input("Espacement entre lots (m)", min_value=0, value=2)
 
-    # Calculer les dimensions des lots (approximatif)
-    lot_side = (lot_size ** 0.5) if lot_shape == "carré" else (lot_size / 20)
-    lots = []
-    minx, miny, maxx, maxy = buffered_polygon.bounds
+# Téléversement du fichier
+uploaded_file = st.file_uploader("Téléversez votre polygonale (GeoJSON/Shapefile)", type=["geojson", "shp"])
 
-    x = minx
-    while x < maxx:
-        y = miny
-        while y < maxy:
-            # Créer un lot
-            lot = Polygon([
-                (x, y),
-                (x + lot_side, y),
-                (x + lot_side, y + lot_side),
-                (x, y + lot_side),
-                (x, y)
-            ])
-
-            # Ajouter le lot s'il est dans la zone
-            if buffered_polygon.contains(lot):
-                lots.append(lot)
-
-            # Avancer dans la grille
-            y += lot_side + road_width
-        x += lot_side + road_width
-
-    return lots
-
-
-# Interface Streamlit
-st.title("Application de morcellement pour lotissement")
-
-# Chargement de la polygonale
-uploaded_file = st.file_uploader("Téléchargez un fichier GeoJSON ou Shapefile", type=["geojson", "shp"])
+def process_subdivision(gdf, params):
+    """Fonction principale de traitement"""
+    try:
+        geom = gdf.geometry.iloc[0]
+        
+        # Application de la servitude de bordure
+        buffered = geom.buffer(-params['border_setback'])
+        
+        # Vérification de la géométrie
+        if buffered.is_empty:
+            st.error("La servitude de bordure est trop grande pour la polygonale !")
+            return None
+            
+        # Conversion en UTM pour les calculs métriques
+        gdf_utm = gdf.to_crs(epsg=32630)  # À adapter selon la localisation
+        
+        # Calcul des dimensions globales
+        bounds = buffered.bounds
+        width = bounds[2] - bounds[0]
+        height = bounds[3] - bounds[1]
+        
+        # Orientation de découpe
+        split_axis = 0 if width > height else 1
+        
+        # Algorithme simplifié de subdivision
+        subdivisions = []
+        current_polygons = [buffered]
+        
+        while current_polygons:
+            poly = current_polygons.pop()
+            area = poly.area
+            
+            if area < params['lot_area'] * 1.2:  # Marge pour les erreurs
+                subdivisions.append(poly)
+                continue
+                
+            # Découpe selon l'axe
+            minx, miny, maxx, maxy = poly.bounds
+            if split_axis == 0:
+                cut_position = minx + (maxx - minx) / 2
+                cutter = LineString([(cut_position, miny), (cut_position, maxy)])
+            else:
+                cut_position = miny + (maxy - miny) / 2
+                cutter = LineString([(minx, cut_position), (maxx, cut_position)])
+            
+            # Application de la découpe
+            divided = split(poly, cutter)
+            
+            # Ajout des nouvelles divisions
+            current_polygons.extend(divided.geoms)
+        
+        # Création du GeoDataFrame résultat
+        result_gdf = gpd.GeoDataFrame(geometry=subdivisions, crs=gdf_utm.crs)
+        result_gdf['area'] = result_gdf.geometry.area
+        
+        return result_gdf.to_crs(gdf.crs)
+        
+    except Exception as e:
+        st.error(f"Erreur lors du traitement : {str(e)}")
+        return None
 
 if uploaded_file:
-    # Charger le fichier avec GeoPandas
-    try:
-        gdf = gpd.read_file(uploaded_file)
-        st.success("Fichier chargé avec succès.")
-        st.write(gdf)
-    except Exception as e:
-        st.error(f"Erreur lors du chargement du fichier : {e}")
-        st.stop()
+    # Lecture du fichier
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        if uploaded_file.name.endswith('.geojson'):
+            path = os.path.join(tmp_dir, 'upload.geojson')
+            with open(path, 'wb') as f:
+                f.write(uploaded_file.getbuffer())
+            gdf = gpd.read_file(path)
+        else:  # Shapefile
+            # Gestion des fichiers .shp nécessaires
+            pass
+        
+        if not gdf.empty:
+            # Affichage de la polygonale originale
+            st.subheader("Visualisation")
+            fig, ax = plt.subplots()
+            gdf.plot(ax=ax, color='lightgrey')
+            
+            # Paramètres
+            params = {
+                'lot_area': lot_area,
+                'min_lot_width': min_lot_width,
+                'road_width': road_width,
+                'border_setback': border_setback,
+                'spacing': spacing
+            }
+            
+            # Traitement
+            result_gdf = process_subdivision(gdf, params)
+            
+            if result_gdf is not None:
+                # Affichage des résultats
+                result_gdf.plot(ax=ax, edgecolor='red', facecolor='none')
+                ax.set_title(f"{len(result_gdf)} lots créés")
+                st.pyplot(fig)
+                
+                # Téléchargement des résultats
+                with tempfile.NamedTemporaryFile(suffix='.geojson') as tmp:
+                    result_gdf.to_file(tmp.name, driver='GeoJSON')
+                    st.download_button(
+                        label="Télécharger les lots",
+                        data=open(tmp.name, 'rb'),
+                        file_name='lots.geojson'
+                    )
+else:
+    st.info("Veuillez téléverser un fichier de polygonale pour commencer")
 
-    # Sélection des paramètres
-    lot_size = st.number_input("Superficie d'un lot (m²)", min_value=1.0, value=500.0)
-    road_width = st.number_input("Largeur des voies (m)", min_value=0.0, value=8.0)
-    buffer_distance = st.number_input("Servitude aux bordures (m)", min_value=0.0, value=5.0)
-    lot_shape = st.selectbox("Forme des lots", ["rectangle", "carré"])
-
-    # Sélectionner un polygone
-    selected_polygon_index = st.selectbox("Sélectionnez un polygone à morceler", gdf.index)
-    polygon = gdf.iloc[selected_polygon_index].geometry
-
-    # Générer les lots
-    if st.button("Lancer le morcellement"):
-        lots = generate_lots(polygon, lot_size, road_width, buffer_distance, lot_shape)
-        lots_gdf = gpd.GeoDataFrame(geometry=lots)
-
-        # Visualiser les résultats
-        st.subheader("Résultats du morcellement")
-        fig, ax = plt.subplots(figsize=(10, 10))
-        lots_gdf.plot(ax=ax, edgecolor="black", facecolor="cyan", alpha=0.5)
-        gpd.GeoSeries([polygon]).plot(ax=ax, edgecolor="red", facecolor="none")
-        st.pyplot(fig)
-
-        # Export des résultats
-        lots_gdf.to_file("morcellement.geojson", driver="GeoJSON")
-        st.download_button("Télécharger le fichier morcelé (GeoJSON)",
-                           data=open("morcellement.geojson", "rb"),
-                           file_name="morcellement.geojson",
-                           mime="application/json")
+st.markdown("""
+**Notes d'utilisation :**
+1. Le fichier doit être dans un système de coordonnées projetées (UTM)
+2. L'algorithme est simplifié pour la démonstration
+3. Les paramètres idéaux dépendent de la forme de la polygonale
+""")
