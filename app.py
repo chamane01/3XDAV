@@ -168,6 +168,12 @@ if uploaded_file:
         # Reprojection en UTM
         gdf_utm = reproject_to_utm(gdf)
         
+        # Vérification des dimensions après reprojection
+        bounds = gdf_utm.total_bounds
+        width = bounds[2] - bounds[0]  # Largeur en mètres
+        height = bounds[3] - bounds[1]  # Hauteur en mètres
+        st.write(f"Dimensions de la polygonale : {width:.1f} m x {height:.1f} m")
+        
         if not gdf_utm.empty:
             st.subheader("Visualisation du projet")
             fig, ax = plt.subplots(figsize=(10, 10))
@@ -222,6 +228,7 @@ st.markdown("""
 **Fonctionnalités clés :**
 - Reprojection automatique en UTM pour les calculs métriques.
 - Gestion des fichiers en `EPSG:4326` (WGS84) ou UTM.
+- Vérification des dimensions après reprojection.
 - Découpe des lots dans les deux directions (largeur et profondeur).
 - Contrôle des dimensions maximales des lots.
 - Export vers SIG (format GeoJSON).
