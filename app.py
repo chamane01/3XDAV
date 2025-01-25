@@ -20,8 +20,6 @@ import os
 import uuid  # Pour générer des identifiants uniques
 from rasterio.mask import mask
 from shapely.geometry import LineString as ShapelyLineString
-import requests
-from osgeo import gdal
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -38,37 +36,6 @@ geojson_colors = {
     "Cours d'eau": "lightblue",
     "Polygonale": "pink"
 }
-
-# Fonction pour télécharger les fichiers TIFF depuis GitHub
-def download_tiff_files_from_github(repo_url, folder_path, local_folder):
-    """Télécharge tous les fichiers TIFF depuis un dossier GitHub."""
-    api_url = f"https://api.github.com/repos/{repo_url}/contents/{folder_path}"
-    response = requests.get(api_url)
-    if response.status_code == 200:
-        files = response.json()
-        for file in files:
-            if file['name'].endswith('.tiff') or file['name'].endswith('.tif'):
-                file_url = file['download_url']
-                file_response = requests.get(file_url)
-                if file_response.status_code == 200:
-                    with open(os.path.join(local_folder, file['name']), 'wb') as f:
-                        f.write(file_response.content)
-                    st.success(f"Fichier {file['name']} téléchargé avec succès.")
-                else:
-                    st.error(f"Erreur lors du téléchargement du fichier {file['name']}.")
-    else:
-        st.error("Erreur lors de l'accès au dépôt GitHub.")
-
-# Fonction pour créer une couche VRT
-def create_vrt_from_tiffs(tiff_folder, vrt_path):
-    """Crée une couche VRT à partir de tous les fichiers TIFF dans un dossier."""
-    tiff_files = [os.path.join(tiff_folder, f) for f in os.listdir(tiff_folder) if f.endswith('.tiff') or f.endswith('.tif')]
-    if tiff_files:
-        vrt = gdal.BuildVRT(vrt_path, tiff_files)
-        vrt = None  # Fermer le fichier VRT
-        st.success(f"Couche VRT créée avec succès : {vrt_path}")
-    else:
-        st.error("Aucun fichier TIFF trouvé dans le dossier.")
 
 # Fonction pour reprojeter un fichier TIFF avec un nom unique
 def reproject_tiff(input_tiff, target_crs):
@@ -509,36 +476,6 @@ with st.sidebar:
     else:
         st.write("Aucune couche téléversée pour le moment.")
 
-    # Section spéciale pour la couche "d'élevations"
-    st.markdown("---")
-    st.header("Gestion des Couches d'Élévation")
-
-    # Télécharger les fichiers TIFF depuis GitHub
-    if st.button("Télécharger les fichiers TIFF depuis GitHub"):
-        repo_url = "votre_nom_utilisateur/votre_depot"  # Remplacez par votre dépôt GitHub
-        folder_path = "raster-files"  # Dossier contenant les fichiers TIFF
-        local_folder = "raster-files"  # Dossier local pour stocker les fichiers téléchargés
-        if not os.path.exists(local_folder):
-            os.makedirs(local_folder)
-        download_tiff_files_from_github(repo_url, folder_path, local_folder)
-
-    # Créer la couche VRT
-    if st.button("Créer la couche VRT"):
-        tiff_folder = "raster-files"  # Dossier contenant les fichiers TIFF
-        vrt_path = "elevation.vrt"  # Chemin vers le fichier VRT
-        create_vrt_from_tiffs(tiff_folder, vrt_path)
-
-    # Ajouter la couche VRT à la carte
-    if st.button("Ajouter la couche VRT à la carte"):
-        vrt_path = "elevation.vrt"
-        if os.path.exists(vrt_path):
-            with rasterio.open(vrt_path) as src:
-                bounds = src.bounds
-                st.session_state["uploaded_layers"].append({"type": "VRT", "name": "Élévation", "path": vrt_path, "bounds": bounds})
-                st.success("Couche VRT d'élévation ajoutée à la carte.")
-        else:
-            st.error("La couche VRT n'existe pas. Veuillez d'abord créer la couche VRT.")
-
 # Carte de base
 m = folium.Map(location=[7.5399, -5.5471], zoom_start=6)  # Centré sur la Côte d'Ivoire avec un zoom adapté
 
@@ -586,10 +523,6 @@ for layer in st.session_state["uploaded_layers"]:
             add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
         
         # Ajuster la vue de la carte pour inclure l'image TIFF
-        bounds = [[layer["bounds"].bottom, layer["bounds"].left], [layer["bounds"].top, layer["bounds"].right]]
-        m.fit_bounds(bounds)
-    elif layer["type"] == "VRT":
-        add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
         bounds = [[layer["bounds"].bottom, layer["bounds"].left], [layer["bounds"].top, layer["bounds"].right]]
         m.fit_bounds(bounds)
     elif layer["type"] == "GeoJSON":
