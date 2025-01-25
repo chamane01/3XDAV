@@ -37,6 +37,44 @@ geojson_colors = {
     "Polygonale": "pink"
 }
 
+# Fonction pour charger les fichiers TIFF depuis le dossier
+def load_raster_files_from_folder(folder_path, map_object):
+    """Charge tous les fichiers TIFF du dossier dans une couche 'elevation'."""
+    if not os.path.exists(folder_path):
+        st.warning(f"Le dossier {folder_path} n'existe pas.")
+        return None
+
+    global_bounds = None
+    for filename in os.listdir(folder_path):
+        if filename.endswith(".tif") or filename.endswith(".tiff"):
+            tiff_path = os.path.join(folder_path, filename)
+            try:
+                with rasterio.open(tiff_path) as src:
+                    bounds = src.bounds
+                    image = reshape_as_image(src.read())
+                    folium.raster_layers.ImageOverlay(
+                        image=image,
+                        bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
+                        name="elevation",
+                        opacity=0.6,
+                    ).add_to(map_object)
+                    st.success(f"Fichier {filename} chargé dans la couche 'elevation'.")
+
+                    # Calcul des limites globales
+                    if global_bounds is None:
+                        global_bounds = bounds
+                    else:
+                        global_bounds = (
+                            min(global_bounds.left, bounds.left),
+                            min(global_bounds.bottom, bounds.bottom),
+                            max(global_bounds.right, bounds.right),
+                            max(global_bounds.top, bounds.top),
+                        )
+            except Exception as e:
+                st.error(f"Erreur lors du chargement du fichier {filename}: {e}")
+
+    return global_bounds
+
 # Fonction pour reprojeter un fichier TIFF avec un nom unique
 def reproject_tiff(input_tiff, target_crs):
     """Reproject a TIFF file to a target CRS."""
@@ -328,156 +366,15 @@ Créez des entités géographiques (points, lignes, polygones) en les dessinant 
 Vous pouvez également téléverser des fichiers TIFF ou GeoJSON pour les superposer à la carte.
 """)
 
-# Sidebar pour la gestion des couches
-with st.sidebar:
-    st.header("Gestion des Couches")
-
-    # Section 1: Ajout d'une nouvelle couche
-    st.markdown("### 1- Ajouter une nouvelle couche")
-    new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
-    if st.button("Ajouter la couche", key="add_layer_button", help="Ajouter une nouvelle couche", type="primary") and new_layer_name:
-        if new_layer_name not in st.session_state["layers"]:
-            st.session_state["layers"][new_layer_name] = []
-            st.success(f"La couche '{new_layer_name}' a été ajoutée.")
-        else:
-            st.warning(f"La couche '{new_layer_name}' existe déjà.")
-
-    # Sélection de la couche active pour ajouter les nouvelles entités
-    st.markdown("#### Sélectionner une couche active")
-    if st.session_state["layers"]:
-        layer_name = st.selectbox(
-            "Choisissez la couche à laquelle ajouter les entités",
-            list(st.session_state["layers"].keys())
-        )
-    else:
-        st.write("Aucune couche disponible. Ajoutez une couche pour commencer.")
-
-    # Affichage des entités temporairement dessinées
-    if st.session_state["new_features"]:
-        st.write(f"**Entités dessinées temporairement ({len(st.session_state['new_features'])}) :**")
-        for idx, feature in enumerate(st.session_state["new_features"]):
-            st.write(f"- Entité {idx + 1}: {feature['geometry']['type']}")
-
-    # Bouton pour enregistrer les nouvelles entités dans la couche active
-    if st.button("Enregistrer les entités", key="save_features_button", type="primary") and st.session_state["layers"]:
-        # Ajouter les entités non dupliquées à la couche sélectionnée
-        current_layer = st.session_state["layers"][layer_name]
-        for feature in st.session_state["new_features"]:
-            if feature not in current_layer:
-                current_layer.append(feature)
-        st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
-        st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
-
-    # Gestion des entités dans les couches
-    st.markdown("#### Gestion des entités dans les couches")
-    if st.session_state["layers"]:
-        selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()))
-        if st.session_state["layers"][selected_layer]:
-            entity_idx = st.selectbox(
-                "Sélectionnez une entité à gérer",
-                range(len(st.session_state["layers"][selected_layer])),
-                format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}"
-            )
-            selected_entity = st.session_state["layers"][selected_layer][entity_idx]
-            current_name = selected_entity.get("properties", {}).get("name", "")
-            new_name = st.text_input("Nom de l'entité", current_name)
-
-            if st.button("Modifier le nom", key=f"edit_{entity_idx}", type="primary"):
-                if "properties" not in selected_entity:
-                    selected_entity["properties"] = {}
-                selected_entity["properties"]["name"] = new_name
-                st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
-
-            if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}", type="secondary"):
-                st.session_state["layers"][selected_layer].pop(entity_idx)
-                st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
-        else:
-            st.write("Aucune entité dans cette couche pour le moment.")
-    else:
-        st.write("Aucune couche disponible pour gérer les entités.")
-
-    # Démarcation claire entre 1- et 2-
-    st.markdown("---")
-
-    # Section 2: Téléversement de fichiers
-    st.markdown("### 2- Téléverser des fichiers")
-    tiff_type = st.selectbox(
-        "Sélectionnez le type de fichier TIFF",
-        options=["MNT", "MNS", "Orthophoto"],
-        index=None,
-        placeholder="Veuillez sélectionner",
-        key="tiff_selectbox"
-    )
-
-    if tiff_type:
-        uploaded_tiff = st.file_uploader(f"Téléverser un fichier TIFF ({tiff_type})", type=["tif", "tiff"], key="tiff_uploader")
-
-        if uploaded_tiff:
-            # Générer un nom de fichier unique pour le fichier téléversé
-            unique_id = str(uuid.uuid4())[:8]
-            tiff_path = f"uploaded_{unique_id}.tiff"
-            with open(tiff_path, "wb") as f:
-                f.write(uploaded_tiff.read())
-
-            st.write(f"Reprojection du fichier TIFF ({tiff_type})...")
-            try:
-                reprojected_tiff = reproject_tiff(tiff_path, "EPSG:4326")
-                with rasterio.open(reprojected_tiff) as src:
-                    bounds = src.bounds
-                    # Vérifier si la couche existe déjà
-                    if not any(layer["name"] == tiff_type and layer["type"] == "TIFF" for layer in st.session_state["uploaded_layers"]):
-                        st.session_state["uploaded_layers"].append({"type": "TIFF", "name": tiff_type, "path": reprojected_tiff, "bounds": bounds})
-                        st.success(f"Couche {tiff_type} ajoutée à la liste des couches.")
-                    else:
-                        st.warning(f"La couche {tiff_type} existe déjà.")
-            except Exception as e:
-                st.error(f"Erreur lors de la reprojection : {e}")
-            finally:
-                # Supprimer le fichier temporaire après utilisation
-                os.remove(tiff_path)
-
-    geojson_type = st.selectbox(
-        "Sélectionnez le type de fichier GeoJSON",
-        options=[
-            "Polygonale", "Routes", "Cours d'eau", "Bâtiments", "Pistes", "Plantations",
-            "Électricité", "Assainissements", "Villages", "Villes", "Chemin de fer", "Parc et réserves"
-        ],
-        index=None,
-        placeholder="Veuillez sélectionner",
-        key="geojson_selectbox"
-    )
-
-    if geojson_type:
-        uploaded_geojson = st.file_uploader(f"Téléverser un fichier GeoJSON ({geojson_type})", type=["geojson"], key="geojson_uploader")
-
-        if uploaded_geojson:
-            try:
-                geojson_data = json.load(uploaded_geojson)
-                # Vérifier si la couche existe déjà
-                if not any(layer["name"] == geojson_type and layer["type"] == "GeoJSON" for layer in st.session_state["uploaded_layers"]):
-                    st.session_state["uploaded_layers"].append({"type": "GeoJSON", "name": geojson_type, "data": geojson_data})
-                    st.success(f"Couche {geojson_type} ajoutée à la liste des couches.")
-                else:
-                    st.warning(f"La couche {geojson_type} existe déjà.")
-            except Exception as e:
-                st.error(f"Erreur lors du chargement du GeoJSON : {e}")
-
-    # Liste des couches téléversées
-    st.markdown("### Liste des couches téléversées")
-    if st.session_state["uploaded_layers"]:
-        for i, layer in enumerate(st.session_state["uploaded_layers"]):
-            col1, col2 = st.columns([4, 1])
-            with col1:
-                st.write(f"{i + 1}. {layer['name']} ({layer['type']})")
-            with col2:
-                if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche", type="secondary"):
-                    st.session_state["uploaded_layers"].pop(i)
-                    st.success(f"Couche {layer['name']} supprimée.")
-    else:
-        st.write("Aucune couche téléversée pour le moment.")
-
-# Carte de base
+# Initialisation de la carte
 m = folium.Map(location=[7.5399, -5.5471], zoom_start=6)  # Centré sur la Côte d'Ivoire avec un zoom adapté
+
+# Charger les fichiers TIFF du dossier 'raster-files' dans la couche 'elevation'
+global_bounds = load_raster_files_from_folder("raster_files", m)
+
+# Ajuster la vue de la carte pour inclure tous les fichiers TIFF
+if global_bounds:
+    m.fit_bounds([[global_bounds.bottom, global_bounds.left], [global_bounds.top, global_bounds.right]])
 
 # Ajout des fonds de carte
 folium.TileLayer(
