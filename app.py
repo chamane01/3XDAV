@@ -4,8 +4,9 @@ import matplotlib.pyplot as plt
 from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString
 from shapely.ops import split, unary_union, polygonize
 import numpy as np
-import tempfile
-import os
+import json
+from shapely.geometry import shape
+import fiona
 
 st.title("🏘️ Générateur de Lotissement Intelligent")
 
@@ -125,8 +126,52 @@ if uploaded_file:
         # Création du GeoDataFrame
         gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326").to_crs("EPSG:3857")
         
-        # Suite du traitement...
-        
+        if not gdf.empty:
+            st.subheader("Visualisation du projet")
+            fig, ax = plt.subplots(figsize=(10, 10))
+            
+            # Paramètres
+            params = {
+                'lot_area': lot_area,
+                'road_width': road_width,
+                'border_setback': border_setback,
+                'min_frontage': min_frontage,
+                'max_depth': max_depth
+            }
+            
+            # Traitement
+            blocks_gdf, lots_gdf, roads_gdf = process_subdivision(gdf, params)
+            
+            # Visualisation
+            gdf.plot(ax=ax, color='lightgrey', zorder=1)
+            
+            if blocks_gdf is not None:
+                # Affichage des îlots (bordures uniquement)
+                blocks_gdf.boundary.plot(ax=ax, color='blue', linewidth=1.5, zorder=2)
+                
+                # Affichage des lots (transparents avec bordures)
+                lots_gdf.boundary.plot(ax=ax, color='red', linewidth=0.5, linestyle='--', zorder=3)
+                
+                # Affichage des voies
+                roads_gdf.plot(ax=ax, color='black', linewidth=2, zorder=4)
+                
+                # Légende
+                ax.set_title(f"Plan de lotissement - {len(lots_gdf)} lots générés")
+                st.pyplot(fig)
+                
+                # Export des résultats
+                with tempfile.NamedTemporaryFile(suffix='.geojson') as tmp:
+                    combined = gpd.GeoDataFrame(
+                        geometry=blocks_gdf.geometry.append(lots_gdf.geometry).append(roads_gdf.geometry),
+                        crs=gdf.crs
+                    )
+                    combined.to_file(tmp.name, driver='GeoJSON')
+                    st.download_button(
+                        label="📤 Télécharger le projet complet",
+                        data=open(tmp.name, 'rb'),
+                        file_name='lotissement.geojson'
+                    )
+    
     except json.JSONDecodeError:
         st.error("Erreur de décodage JSON - Vérifiez le format du fichier")
     except ValueError as e:
@@ -135,33 +180,6 @@ if uploaded_file:
         st.error("Format de fichier non supporté - Utilisez un GeoJSON valide")
     except Exception as e:
         st.error(f"Erreur inattendue : {str(e)}")
-        
-        if blocks_gdf is not None:
-            # Affichage des îlots (bordures uniquement)
-            blocks_gdf.boundary.plot(ax=ax, color='blue', linewidth=1.5, zorder=2)
-            
-            # Affichage des lots (transparents avec bordures)
-            lots_gdf.boundary.plot(ax=ax, color='red', linewidth=0.5, linestyle='--', zorder=3)
-            
-            # Affichage des voies
-            roads_gdf.plot(ax=ax, color='black', linewidth=2, zorder=4)
-            
-            # Légende
-            ax.set_title(f"Plan de lotissement - {len(lots_gdf)} lots générés")
-            st.pyplot(fig)
-            
-            # Export des résultats
-            with tempfile.NamedTemporaryFile(suffix='.geojson') as tmp:
-                combined = gpd.GeoDataFrame(
-                    geometry=blocks_gdf.geometry.append(lots_gdf.geometry).append(roads_gdf.geometry),
-                    crs=gdf.crs
-                )
-                combined.to_file(tmp.name, driver='GeoJSON')
-                st.download_button(
-                    label="📤 Télécharger le projet complet",
-                    data=open(tmp.name, 'rb'),
-                    file_name='lotissement.geojson'
-                )
 else:
     st.info("📤 Veuillez téléverser un fichier GeoJSON pour commencer")
 
