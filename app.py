@@ -88,10 +88,15 @@ def process_subdivision(gdf, params):
     try:
         geom = gdf.geometry.iloc[0]
         
-        # Application des servitudes avec validation
-        buffered = geom.buffer(-params['border_setback'])
-        if buffered.is_empty or buffered.area < 100:  # 100 m² minimum
-            raise ValueError("La servitude de bordure rend la zone inutilisable")
+        # Application des servitudes avec validation dynamique
+        min_buffer = 0.1  # 10 cm minimum pour éviter des géométries vides
+        buffered = geom.buffer(-max(params['border_setback'], min_buffer))
+        
+        # Vérification de la zone utilisable
+        if buffered.is_empty:
+            raise ValueError("La servitude de bordure est trop grande pour la polygonale.")
+        if buffered.area < params['lot_area']:
+            raise ValueError(f"La zone utilisable ({buffered.area:.1f} m²) est trop petite pour créer un lot de {params['lot_area']} m².")
         
         # Création du réseau de voies
         road_network = create_road_network(buffered, params['road_width'])
