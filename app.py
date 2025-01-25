@@ -6,6 +6,7 @@ from shapely.geometry import shape, Polygon, LineString
 from shapely.ops import unary_union, polygonize
 import matplotlib.pyplot as plt
 from shapely.validation import make_valid
+import pyproj
 
 # Configuration de la page Streamlit
 st.set_page_config(page_title="Générateur de Lotissement", layout="wide")
@@ -22,6 +23,18 @@ with st.sidebar:
 
 # Téléversement du fichier
 uploaded_file = st.file_uploader("Téléversez votre polygonale (GeoJSON)", type=["geojson"])
+
+def get_utm_zone(longitude):
+    """Détermine la zone UTM à partir de la longitude"""
+    return int((longitude + 180) // 6) + 1
+
+def reproject_to_utm(gdf):
+    """Reprojette un GeoDataFrame en UTM"""
+    centroid = gdf.geometry.centroid.iloc[0]
+    utm_zone = get_utm_zone(centroid.x)
+    hemisphere = "north" if centroid.y >= 0 else "south"
+    epsg_code = 32600 + utm_zone if hemisphere == "north" else 32700 + utm_zone
+    return gdf.to_crs(epsg=epsg_code)
 
 def create_road_network(polygon, road_width):
     """Crée un réseau de voies en grille avec validation des dimensions"""
@@ -141,9 +154,12 @@ if uploaded_file:
             geometries.append(geom)
         
         # Création du GeoDataFrame
-        gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326").to_crs("EPSG:3857")
+        gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")
         
-        if not gdf.empty:
+        # Reprojection en UTM
+        gdf_utm = reproject_to_utm(gdf)
+        
+        if not gdf_utm.empty:
             st.subheader("Visualisation du projet")
             fig, ax = plt.subplots(figsize=(10, 10))
             
@@ -157,10 +173,10 @@ if uploaded_file:
             }
             
             # Traitement
-            blocks_gdf, lots_gdf, roads_gdf = process_subdivision(gdf, params)
+            blocks_gdf, lots_gdf, roads_gdf = process_subdivision(gdf_utm, params)
             
             # Visualisation
-            gdf.plot(ax=ax, color='lightgrey', zorder=1)
+            gdf_utm.plot(ax=ax, color='lightgrey', zorder=1)
             
             if blocks_gdf is not None:
                 # Affichage des îlots (bordures uniquement)
@@ -180,7 +196,7 @@ if uploaded_file:
                 with tempfile.NamedTemporaryFile(suffix='.geojson') as tmp:
                     combined = gpd.GeoDataFrame(
                         geometry=blocks_gdf.geometry.append(lots_gdf.geometry).append(roads_gdf.geometry),
-                        crs=gdf.crs
+                        crs=gdf_utm.crs
                     )
                     combined.to_file(tmp.name, driver='GeoJSON')
                     st.download_button(
@@ -200,9 +216,9 @@ else:
 
 st.markdown("""
 **Fonctionnalités clés :**
-- Réseau de voies intégré automatiquement
-- Lots alignés et adjacents dans chaque îlot
-- Respect des servitudes et des règles d'urbanisme
-- Visualisation hiérarchique (bordures > voies > lots)
-- Export vers SIG (format GeoJSON)
+- Reprojection automatique en UTM pour les calculs métriques.
+- Gestion des fichiers en `EPSG:4326` (WGS84) ou UTM.
+- Réseau de voies intégré automatiquement.
+- Lots alignés et adjacents dans chaque îlot.
+- Export vers SIG (format GeoJSON).
 """)
