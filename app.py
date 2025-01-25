@@ -105,28 +105,36 @@ def process_subdivision(gdf, params):
         return None, None, None
 
 if uploaded_file:
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.geojson') as tmp:
-        tmp.write(uploaded_file.getvalue())
-        gdf = gpd.read_file(tmp.name)
-    
-    if not gdf.empty:
-        st.subheader("Visualisation du projet")
-        fig, ax = plt.subplots(figsize=(10, 10))
+    try:
+        # Lecture directe depuis le buffer mémoire
+        content = uploaded_file.getvalue().decode('utf-8')
+        geojson = json.loads(content)
         
-        # Paramètres
-        params = {
-            'lot_area': lot_area,
-            'road_width': road_width,
-            'border_setback': border_setback,
-            'min_frontage': min_frontage,
-            'max_depth': max_depth
-        }
+        # Validation de la structure GeoJSON
+        if not all(key in geojson for key in ['type', 'features']):
+            raise ValueError("Format GeoJSON invalide")
+            
+        # Conversion en geometries Shapely
+        geometries = []
+        for feature in geojson['features']:
+            geom = shape(feature['geometry'])
+            if not geom.is_valid:
+                geom = geom.buffer(0)  # Correction des géométries
+            geometries.append(geom)
         
-        # Traitement
-        blocks_gdf, lots_gdf, roads_gdf = process_subdivision(gdf, params)
+        # Création du GeoDataFrame
+        gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326").to_crs("EPSG:3857")
         
-        # Visualisation
-        gdf.plot(ax=ax, color='lightgrey', zorder=1)
+        # Suite du traitement...
+        
+    except json.JSONDecodeError:
+        st.error("Erreur de décodage JSON - Vérifiez le format du fichier")
+    except ValueError as e:
+        st.error(str(e))
+    except fiona.errors.DriverError:
+        st.error("Format de fichier non supporté - Utilisez un GeoJSON valide")
+    except Exception as e:
+        st.error(f"Erreur inattendue : {str(e)}")
         
         if blocks_gdf is not None:
             # Affichage des îlots (bordures uniquement)
