@@ -127,13 +127,12 @@ def process_subdivision(gdf, params):
         # Création des GeoDataFrames
         blocks_gdf = gpd.GeoDataFrame(geometry=blocks, crs=gdf.crs)
         lots_gdf = gpd.GeoDataFrame(geometry=all_lots, crs=gdf.crs)
-        roads_gdf = gpd.GeoDataFrame(geometry=[road_network], crs=gdf.crs)
         
-        return blocks_gdf, lots_gdf, roads_gdf
+        return blocks_gdf, lots_gdf
     
     except Exception as e:
         st.error(f"Erreur : {str(e)}")
-        return None, None, None
+        return None, None
 
 if uploaded_file:
     try:
@@ -173,20 +172,15 @@ if uploaded_file:
             }
             
             # Traitement
-            blocks_gdf, lots_gdf, roads_gdf = process_subdivision(gdf_utm, params)
+            blocks_gdf, lots_gdf = process_subdivision(gdf_utm, params)
             
             # Visualisation
-            gdf_utm.plot(ax=ax, color='lightgrey', zorder=1)
-            
             if blocks_gdf is not None:
                 # Affichage des îlots (bordures uniquement)
                 blocks_gdf.boundary.plot(ax=ax, color='blue', linewidth=1.5, zorder=2)
                 
                 # Affichage des lots (transparents avec bordures)
                 lots_gdf.boundary.plot(ax=ax, color='red', linewidth=0.5, linestyle='--', zorder=3)
-                
-                # Affichage des voies
-                roads_gdf.plot(ax=ax, color='black', linewidth=2, zorder=4)
                 
                 # Légende
                 ax.set_title(f"Plan de lotissement - {len(lots_gdf)} lots générés")
@@ -195,7 +189,7 @@ if uploaded_file:
                 # Export des résultats
                 with tempfile.NamedTemporaryFile(suffix='.geojson') as tmp:
                     combined = gpd.GeoDataFrame(
-                        geometry=blocks_gdf.geometry.append(lots_gdf.geometry).append(roads_gdf.geometry),
+                        geometry=blocks_gdf.geometry.append(lots_gdf.geometry),
                         crs=gdf_utm.crs
                     )
                     combined.to_file(tmp.name, driver='GeoJSON')
@@ -218,7 +212,7 @@ st.markdown("""
 **Fonctionnalités clés :**
 - Reprojection automatique en UTM pour les calculs métriques.
 - Gestion des fichiers en `EPSG:4326` (WGS84) ou UTM.
-- Réseau de voies intégré automatiquement.
-- Lots alignés et adjacents dans chaque îlot.
+- Îlots bien définis avec des lots alignés.
+- Routes implicites représentées par les espaces entre les îlots.
 - Export vers SIG (format GeoJSON).
 """)
