@@ -1,8 +1,8 @@
 import streamlit as st
 import geopandas as gpd
 import matplotlib.pyplot as plt
-from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString
-from shapely.ops import split, unary_union, polygonize
+from shapely.geometry import Polygon, LineString
+from shapely.ops import unary_union, polygonize
 import numpy as np
 import json
 from shapely.geometry import shape
@@ -124,7 +124,10 @@ if uploaded_file:
             geometries.append(geom)
         
         # Création du GeoDataFrame
-        gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326").to_crs("EPSG:3857")
+        gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")  # WGS84
+        
+        # Conversion en système de coordonnées projetées (Web Mercator)
+        gdf = gdf.to_crs("EPSG:3857")  # Pour les calculs métriques
         
         if not gdf.empty:
             st.subheader("Visualisation du projet")
