@@ -67,31 +67,41 @@ def create_road_network(polygon, road_width):
     return unary_union(x_roads + y_roads)
 
 def split_block(block, params):
-    """Découpe un îlot en lots adjacents"""
+    """Découpe un îlot en lots adjacents avec contrôle des dimensions"""
     lots = []
     current = block
     
     while current.area > params['lot_area'] * 0.8:
         bounds = current.bounds
-        width = bounds[2] - bounds[0]
+        width = bounds[2] - bounds[0]  # Largeur du bloc
+        height = bounds[3] - bounds[1]  # Hauteur du bloc
         
-        if width > params['max_depth']:
-            cut = bounds[0] + params['max_depth']
+        # Choix de la direction de découpe
+        if width > height:
+            # Découpe horizontale (par la largeur)
+            cut_position = bounds[0] + min(params['max_depth'], width)
             lot = Polygon([
                 (bounds[0], bounds[1]),
-                (cut, bounds[1]),
-                (cut, bounds[3]),
+                (cut_position, bounds[1]),
+                (cut_position, bounds[3]),
                 (bounds[0], bounds[3])
             ])
-            remaining = current.difference(lot)
         else:
-            lot = current
-            remaining = Polygon()
+            # Découpe verticale (par la hauteur)
+            cut_position = bounds[1] + min(params['max_depth'], height)
+            lot = Polygon([
+                (bounds[0], bounds[1]),
+                (bounds[2], bounds[1]),
+                (bounds[2], cut_position),
+                (bounds[0], cut_position)
+            ])
         
+        # Vérification de la superficie du lot
         if lot.area >= params['lot_area'] * 0.8:
             lots.append(lot)
         
-        current = remaining
+        # Mise à jour du bloc restant
+        current = current.difference(lot)
         if current.is_empty:
             break
     
@@ -212,7 +222,7 @@ st.markdown("""
 **Fonctionnalités clés :**
 - Reprojection automatique en UTM pour les calculs métriques.
 - Gestion des fichiers en `EPSG:4326` (WGS84) ou UTM.
-- Îlots bien définis avec des lots alignés.
-- Routes implicites représentées par les espaces entre les îlots.
+- Découpe des lots dans les deux directions (largeur et profondeur).
+- Contrôle des dimensions maximales des lots.
 - Export vers SIG (format GeoJSON).
 """)
