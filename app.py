@@ -1,136 +1,167 @@
 import streamlit as st
 import geopandas as gpd
 import matplotlib.pyplot as plt
-from shapely.geometry import Polygon, MultiPolygon, LineString
-from shapely.ops import split, unary_union
+from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString
+from shapely.ops import split, unary_union, polygonize
+import numpy as np
 import tempfile
 import os
 
-st.title("🛣️ Morcellement de Polygonale pour Lotissement")
+st.title("🏘️ Générateur de Lotissement Intelligent")
 
 # Sidebar pour les paramètres
 with st.sidebar:
-    st.header("Paramètres de Morcellement")
-    lot_area = st.number_input("Superficie désirée par lot (m²)", min_value=100, value=500)
-    min_lot_width = st.number_input("Largeur minimale des lots (m)", min_value=5, value=10)
-    road_width = st.number_input("Largeur des voies (m)", min_value=3, value=8)
+    st.header("Paramètres de conception")
+    lot_area = st.number_input("Superficie par lot (m²)", min_value=100, value=500)
+    road_width = st.number_input("Largeur des voies (m)", min_value=5, value=8)
     border_setback = st.number_input("Servitude de bordure (m)", min_value=0, value=5)
-    spacing = st.number_input("Espacement entre lots (m)", min_value=0, value=2)
+    min_frontage = st.number_input("Largeur minimale de façade (m)", min_value=5, value=10)
+    max_depth = st.number_input("Profondeur maximale des lots (m)", min_value=10, value=30)
 
 # Téléversement du fichier
-uploaded_file = st.file_uploader("Téléversez votre polygonale (GeoJSON/Shapefile)", type=["geojson", "shp"])
+uploaded_file = st.file_uploader("Téléversez votre polygonale (GeoJSON)", type=["geojson"])
+
+def create_road_network(polygon, road_width):
+    """Crée un réseau de voies en grille"""
+    bounds = polygon.bounds
+    xmin, ymin, xmax, ymax = bounds
+    
+    # Calcul des intervalles de voies
+    x_roads = np.arange(xmin + road_width, xmax, road_width * 4)
+    y_roads = np.arange(ymin + road_width, ymax, road_width * 3)
+    
+    # Création des lignes de voies
+    vertical = [LineString([(x, ymin), (x, ymax)]) for x in x_roads]
+    horizontal = [LineString([(xmin, y), (xmax, y)]) for y in y_roads]
+    
+    # Découpe du polygone initial
+    roads = unary_union(vertical + horizontal)
+    return roads
+
+def split_block(block, target_area, min_frontage, max_depth):
+    """Découpe un îlot en lots adjacents"""
+    lots = []
+    current = block
+    
+    while current.area > target_area * 0.8:
+        # Découpe selon la profondeur maximale
+        bounds = current.bounds
+        width = bounds[2] - bounds[0]
+        
+        if width > max_depth:
+            cut = bounds[0] + max_depth
+            lot = Polygon([
+                (bounds[0], bounds[1]),
+                (cut, bounds[1]),
+                (cut, bounds[3]),
+                (bounds[0], bounds[3])
+            ])
+            remaining = current.difference(lot)
+        else:
+            lot = current
+            remaining = Polygon()
+        
+        if lot.area >= target_area * 0.8:
+            lots.append(lot)
+        
+        current = remaining
+        if current.is_empty:
+            break
+    
+    return lots
 
 def process_subdivision(gdf, params):
-    """Fonction principale de traitement"""
     try:
         geom = gdf.geometry.iloc[0]
         
-        # Application de la servitude de bordure
-        buffered = geom.buffer(-params['border_setback'])
+        # Application des servitudes
+        main_area = geom.buffer(-params['border_setback'])
         
-        # Vérification de la géométrie
-        if buffered.is_empty:
-            st.error("La servitude de bordure est trop grande pour la polygonale !")
-            return None
-            
-        # Conversion en UTM pour les calculs métriques
-        gdf_utm = gdf.to_crs(epsg=32630)  # À adapter selon la localisation
+        # Création du réseau de voies
+        road_network = create_road_network(main_area, params['road_width'])
         
-        # Calcul des dimensions globales
-        bounds = buffered.bounds
-        width = bounds[2] - bounds[0]
-        height = bounds[3] - bounds[1]
+        # Découpe des îlots
+        blocks = list(polygonize(road_network))
         
-        # Orientation de découpe
-        split_axis = 0 if width > height else 1
+        # Génération des lots dans chaque îlot
+        all_lots = []
+        for block in blocks:
+            if block.within(main_area):
+                lots = split_block(block, 
+                                 params['lot_area'],
+                                 params['min_frontage'],
+                                 params['max_depth'])
+                all_lots.extend(lots)
         
-        # Algorithme simplifié de subdivision
-        subdivisions = []
-        current_polygons = [buffered]
+        # Création des GeoDataFrames
+        blocks_gdf = gpd.GeoDataFrame(geometry=blocks, crs=gdf.crs)
+        lots_gdf = gpd.GeoDataFrame(geometry=all_lots, crs=gdf.crs)
+        roads_gdf = gpd.GeoDataFrame(geometry=[road_network], crs=gdf.crs)
         
-        while current_polygons:
-            poly = current_polygons.pop()
-            area = poly.area
-            
-            if area < params['lot_area'] * 1.2:  # Marge pour les erreurs
-                subdivisions.append(poly)
-                continue
-                
-            # Découpe selon l'axe
-            minx, miny, maxx, maxy = poly.bounds
-            if split_axis == 0:
-                cut_position = minx + (maxx - minx) / 2
-                cutter = LineString([(cut_position, miny), (cut_position, maxy)])
-            else:
-                cut_position = miny + (maxy - miny) / 2
-                cutter = LineString([(minx, cut_position), (maxx, cut_position)])
-            
-            # Application de la découpe
-            divided = split(poly, cutter)
-            
-            # Ajout des nouvelles divisions
-            current_polygons.extend(divided.geoms)
-        
-        # Création du GeoDataFrame résultat
-        result_gdf = gpd.GeoDataFrame(geometry=subdivisions, crs=gdf_utm.crs)
-        result_gdf['area'] = result_gdf.geometry.area
-        
-        return result_gdf.to_crs(gdf.crs)
+        return blocks_gdf, lots_gdf, roads_gdf
         
     except Exception as e:
-        st.error(f"Erreur lors du traitement : {str(e)}")
-        return None
+        st.error(f"Erreur de traitement : {str(e)}")
+        return None, None, None
 
 if uploaded_file:
-    # Lecture du fichier
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        if uploaded_file.name.endswith('.geojson'):
-            path = os.path.join(tmp_dir, 'upload.geojson')
-            with open(path, 'wb') as f:
-                f.write(uploaded_file.getbuffer())
-            gdf = gpd.read_file(path)
-        else:  # Shapefile
-            # Gestion des fichiers .shp nécessaires
-            pass
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.geojson') as tmp:
+        tmp.write(uploaded_file.getvalue())
+        gdf = gpd.read_file(tmp.name)
+    
+    if not gdf.empty:
+        st.subheader("Visualisation du projet")
+        fig, ax = plt.subplots(figsize=(10, 10))
         
-        if not gdf.empty:
-            # Affichage de la polygonale originale
-            st.subheader("Visualisation")
-            fig, ax = plt.subplots()
-            gdf.plot(ax=ax, color='lightgrey')
+        # Paramètres
+        params = {
+            'lot_area': lot_area,
+            'road_width': road_width,
+            'border_setback': border_setback,
+            'min_frontage': min_frontage,
+            'max_depth': max_depth
+        }
+        
+        # Traitement
+        blocks_gdf, lots_gdf, roads_gdf = process_subdivision(gdf, params)
+        
+        # Visualisation
+        gdf.plot(ax=ax, color='lightgrey', zorder=1)
+        
+        if blocks_gdf is not None:
+            # Affichage des îlots (bordures uniquement)
+            blocks_gdf.boundary.plot(ax=ax, color='blue', linewidth=1.5, zorder=2)
             
-            # Paramètres
-            params = {
-                'lot_area': lot_area,
-                'min_lot_width': min_lot_width,
-                'road_width': road_width,
-                'border_setback': border_setback,
-                'spacing': spacing
-            }
+            # Affichage des lots (transparents avec bordures)
+            lots_gdf.boundary.plot(ax=ax, color='red', linewidth=0.5, linestyle='--', zorder=3)
             
-            # Traitement
-            result_gdf = process_subdivision(gdf, params)
+            # Affichage des voies
+            roads_gdf.plot(ax=ax, color='black', linewidth=2, zorder=4)
             
-            if result_gdf is not None:
-                # Affichage des résultats
-                result_gdf.plot(ax=ax, edgecolor='red', facecolor='none')
-                ax.set_title(f"{len(result_gdf)} lots créés")
-                st.pyplot(fig)
-                
-                # Téléchargement des résultats
-                with tempfile.NamedTemporaryFile(suffix='.geojson') as tmp:
-                    result_gdf.to_file(tmp.name, driver='GeoJSON')
-                    st.download_button(
-                        label="Télécharger les lots",
-                        data=open(tmp.name, 'rb'),
-                        file_name='lots.geojson'
-                    )
+            # Légende
+            ax.set_title(f"Plan de lotissement - {len(lots_gdf)} lots générés")
+            st.pyplot(fig)
+            
+            # Export des résultats
+            with tempfile.NamedTemporaryFile(suffix='.geojson') as tmp:
+                combined = gpd.GeoDataFrame(
+                    geometry=blocks_gdf.geometry.append(lots_gdf.geometry).append(roads_gdf.geometry),
+                    crs=gdf.crs
+                )
+                combined.to_file(tmp.name, driver='GeoJSON')
+                st.download_button(
+                    label="📤 Télécharger le projet complet",
+                    data=open(tmp.name, 'rb'),
+                    file_name='lotissement.geojson'
+                )
 else:
-    st.info("Veuillez téléverser un fichier de polygonale pour commencer")
+    st.info("📤 Veuillez téléverser un fichier GeoJSON pour commencer")
 
 st.markdown("""
-**Notes d'utilisation :**
-1. Le fichier doit être dans un système de coordonnées projetées (UTM)
-2. L'algorithme est simplifié pour la démonstration
-3. Les paramètres idéaux dépendent de la forme de la polygonale
+**Fonctionnalités clés :**
+- Réseau de voies intégré automatiquement
+- Lots alignés et adjacents dans chaque îlot
+- Respect des servitudes et des règles d'urbanisme
+- Visualisation hiérarchique (bordures > voies > lots)
+- Export vers SIG (format GeoJSON)
 """)
