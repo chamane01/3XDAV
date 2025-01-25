@@ -5,9 +5,26 @@ import json
 from shapely.geometry import shape, Polygon, LineString
 from shapely.ops import unary_union, polygonize
 import matplotlib.pyplot as plt
+from shapely.validation import make_valid
+
+# Configuration de la page Streamlit
+st.set_page_config(page_title="Générateur de Lotissement", layout="wide")
+st.title("🏘️ Générateur de Lotissement Intelligent")
+
+# Sidebar pour les paramètres
+with st.sidebar:
+    st.header("Paramètres de conception")
+    lot_area = st.number_input("Superficie par lot (m²)", min_value=100, value=500)
+    road_width = st.number_input("Largeur des voies (m)", min_value=5, value=8)
+    border_setback = st.number_input("Servitude de bordure (m)", min_value=0, value=5)
+    min_frontage = st.number_input("Largeur minimale de façade (m)", min_value=5, value=10)
+    max_depth = st.number_input("Profondeur maximale des lots (m)", min_value=10, value=30)
+
+# Téléversement du fichier
+uploaded_file = st.file_uploader("Téléversez votre polygonale (GeoJSON)", type=["geojson"])
 
 def create_road_network(polygon, road_width):
-    """Crée un réseau de voies avec validation des dimensions"""
+    """Crée un réseau de voies en grille avec validation des dimensions"""
     bounds = polygon.bounds
     xmin, ymin, xmax, ymax = bounds
     
@@ -15,72 +32,38 @@ def create_road_network(polygon, road_width):
     if (xmax - xmin) < 2 * road_width or (ymax - ymin) < 2 * road_width:
         raise ValueError("La polygonale est trop petite pour les paramètres choisis")
     
-    # Calcul sécurisé des intervalles
+    # Calcul des intervalles de voies
     x_step = max(road_width * 4, (xmax - xmin) / 4)
     y_step = max(road_width * 3, (ymax - ymin) / 3)
     
+    # Création des voies verticales
     x_roads = []
     current_x = xmin + road_width
     while current_x < xmax - road_width:
-        x_roads.append(current_x)
+        x_roads.append(LineString([(current_x, ymin), (current_x, ymax)]))
         current_x += x_step
     
+    # Création des voies horizontales
     y_roads = []
     current_y = ymin + road_width
     while current_y < ymax - road_width:
-        y_roads.append(current_y)
+        y_roads.append(LineString([(xmin, current_y), (xmax, current_y)]))
         current_y += y_step
     
-    # Création des voies
-    vertical = [LineString([(x, ymin), (x, ymax)]) for x in x_roads]
-    horizontal = [LineString([(xmin, y), (xmax, y)]) for y in y_roads]
-    
-    return unary_union(vertical + horizontal)
+    # Union des voies
+    return unary_union(x_roads + y_roads)
 
-def process_subdivision(gdf, params):
-    try:
-        geom = gdf.geometry.iloc[0]
-        
-        # Application des servitudes avec validation
-        buffered = geom.buffer(-params['border_setback'])
-        if buffered.is_empty or buffered.area < 100:  # 100 m² minimum
-            raise ValueError("La servitude de bordure rend la zone inutilisable")
-        
-        # Création du réseau de voies sécurisé
-        road_network = create_road_network(buffered, params['road_width'])
-        
-        # Découpe des îlots
-        blocks = list(polygonize(road_network))
-        
-        # Génération des lots avec contrôle de surface
-        all_lots = []
-        for block in blocks:
-            if block.area >= params['lot_area'] * 0.8:
-                lots = split_block(block, params)
-                all_lots.extend(lots)
-        
-        return gpd.GeoDataFrame(geometry=all_lots, crs=gdf.crs)
-    
-    except Exception as e:
-        st.error(f"Erreur : {str(e)}")
-        return None
-
-# Téléversement du fichier
-uploaded_file = st.file_uploader("Téléversez votre polygonale (GeoJSON)", type=["geojson"])
-
-
-def split_block(block, target_area, min_frontage, max_depth):
+def split_block(block, params):
     """Découpe un îlot en lots adjacents"""
     lots = []
     current = block
     
-    while current.area > target_area * 0.8:
-        # Découpe selon la profondeur maximale
+    while current.area > params['lot_area'] * 0.8:
         bounds = current.bounds
         width = bounds[2] - bounds[0]
         
-        if width > max_depth:
-            cut = bounds[0] + max_depth
+        if width > params['max_depth']:
+            cut = bounds[0] + params['max_depth']
             lot = Polygon([
                 (bounds[0], bounds[1]),
                 (cut, bounds[1]),
@@ -92,7 +75,7 @@ def split_block(block, target_area, min_frontage, max_depth):
             lot = current
             remaining = Polygon()
         
-        if lot.area >= target_area * 0.8:
+        if lot.area >= params['lot_area'] * 0.8:
             lots.append(lot)
         
         current = remaining
@@ -105,23 +88,22 @@ def process_subdivision(gdf, params):
     try:
         geom = gdf.geometry.iloc[0]
         
-        # Application des servitudes
-        main_area = geom.buffer(-params['border_setback'])
+        # Application des servitudes avec validation
+        buffered = geom.buffer(-params['border_setback'])
+        if buffered.is_empty or buffered.area < 100:  # 100 m² minimum
+            raise ValueError("La servitude de bordure rend la zone inutilisable")
         
         # Création du réseau de voies
-        road_network = create_road_network(main_area, params['road_width'])
+        road_network = create_road_network(buffered, params['road_width'])
         
         # Découpe des îlots
         blocks = list(polygonize(road_network))
         
-        # Génération des lots dans chaque îlot
+        # Génération des lots
         all_lots = []
         for block in blocks:
-            if block.within(main_area):
-                lots = split_block(block, 
-                                 params['lot_area'],
-                                 params['min_frontage'],
-                                 params['max_depth'])
+            if block.area >= params['lot_area'] * 0.8:
+                lots = split_block(block, params)
                 all_lots.extend(lots)
         
         # Création des GeoDataFrames
@@ -130,34 +112,31 @@ def process_subdivision(gdf, params):
         roads_gdf = gpd.GeoDataFrame(geometry=[road_network], crs=gdf.crs)
         
         return blocks_gdf, lots_gdf, roads_gdf
-        
+    
     except Exception as e:
-        st.error(f"Erreur de traitement : {str(e)}")
+        st.error(f"Erreur : {str(e)}")
         return None, None, None
 
 if uploaded_file:
     try:
-        # Lecture directe depuis le buffer mémoire
+        # Lecture du fichier GeoJSON
         content = uploaded_file.getvalue().decode('utf-8')
         geojson = json.loads(content)
         
         # Validation de la structure GeoJSON
         if not all(key in geojson for key in ['type', 'features']):
             raise ValueError("Format GeoJSON invalide")
-            
-        # Conversion en geometries Shapely
+        
+        # Conversion en géométries Shapely
         geometries = []
         for feature in geojson['features']:
             geom = shape(feature['geometry'])
             if not geom.is_valid:
-                geom = geom.buffer(0)  # Correction des géométries
+                geom = make_valid(geom)  # Correction des géométries
             geometries.append(geom)
         
         # Création du GeoDataFrame
-        gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")  # WGS84
-        
-        # Conversion en système de coordonnées projetées (Web Mercator)
-        gdf = gdf.to_crs("EPSG:3857")  # Pour les calculs métriques
+        gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326").to_crs("EPSG:3857")
         
         if not gdf.empty:
             st.subheader("Visualisation du projet")
@@ -209,8 +188,6 @@ if uploaded_file:
         st.error("Erreur de décodage JSON - Vérifiez le format du fichier")
     except ValueError as e:
         st.error(str(e))
-    except fiona.errors.DriverError:
-        st.error("Format de fichier non supporté - Utilisez un GeoJSON valide")
     except Exception as e:
         st.error(f"Erreur inattendue : {str(e)}")
 else:
@@ -224,4 +201,3 @@ st.markdown("""
 - Visualisation hiérarchique (bordures > voies > lots)
 - Export vers SIG (format GeoJSON)
 """)
-# Interface Streamlit et reste du code inchangé...
