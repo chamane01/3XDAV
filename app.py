@@ -21,6 +21,8 @@ import uuid  # Pour générer des identifiants uniques
 from rasterio.mask import mask
 from shapely.geometry import LineString as ShapelyLineString
 from scipy.ndimage import gaussian_filter
+from matplotlib.colors import Normalize
+from matplotlib import cm
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -37,14 +39,6 @@ geojson_colors = {
     "Cours d'eau": "lightblue",
     "Polygonale": "pink"
 }
-
-
-
-
-
-
-
-
 
 # Fonction pour reprojeter un fichier TIFF avec un nom unique
 def reproject_tiff(input_tiff, target_crs):
@@ -191,8 +185,7 @@ def calculate_volume_and_area_for_each_polygon(mns_path, mnt_path, polygons_gdf)
             st.error(f"Erreur sur le polygone {idx + 1}: {str(e)}")
     
     return volumes, areas
-
-# Fonction pour extraire les points sur les bords d'une polygonale
+    # Fonction pour extraire les points sur les bords d'une polygonale
 def extract_boundary_points(polygon):
     """Extrait les points situés sur les bords d'une polygonale."""
     boundary = polygon.boundary
@@ -318,7 +311,7 @@ def convert_drawn_features_to_gdf(features):
     gdf["properties"] = properties
     return gdf
 
-
+# Fonction pour générer des courbes de niveau
 def generate_contour_lines(tiff_path, output_path, interval=10, sigma=1):
     """Génère des courbes de niveau à partir d'un fichier TIFF et les sauvegarde en PNG."""
     with rasterio.open(tiff_path) as src:
@@ -340,7 +333,7 @@ def generate_contour_lines(tiff_path, output_path, interval=10, sigma=1):
         plt.imsave(output_path, contour.to_rgba(contour.cvalues), cmap=cmap)
         plt.close()
 
-
+# Fonction pour ajouter une couche de courbes de niveau à la carte
 def add_contour_overlay(map_object, contour_path, bounds, name):
     """Ajoute une couche de courbes de niveau à la carte Folium."""
     folium.raster_layers.ImageOverlay(
@@ -349,12 +342,6 @@ def add_contour_overlay(map_object, contour_path, bounds, name):
         name=name,
         opacity=0.6,
     ).add_to(map_object)
-
-
-
-
-
-
 
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
@@ -374,7 +361,6 @@ st.markdown("""
 Créez des entités géographiques (points, lignes, polygones) en les dessinant sur la carte et ajoutez-les à des couches spécifiques. 
 Vous pouvez également téléverser des fichiers TIFF ou GeoJSON pour les superposer à la carte.
 """)
-
 # Sidebar pour la gestion des couches
 with st.sidebar:
     st.header("Gestion des Couches")
@@ -615,13 +601,6 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
 if 'active_button' not in st.session_state:
     st.session_state['active_button'] = None
 
-
-
-
-
-
-
-
 # Fonction pour afficher les paramètres de la carte de contours
 def display_contour_parameters():
     st.markdown("### Carte de contours")
@@ -659,18 +638,6 @@ def display_contour_parameters():
                     st.error("Impossible de déterminer les limites de la couche.")
             else:
                 st.error("Aucun fichier TIFF trouvé pour la couche sélectionnée.")
-
-
-
-
-
-
-
-
-
-
-
-
 
 # Fonction pour afficher les paramètres en fonction du bouton cliqué
 def display_parameters(button_name):
@@ -771,7 +738,6 @@ def display_parameters(button_name):
 
     elif button_name == "Carte de contours":
         display_contour_parameters()
-
 
 # Ajout des boutons pour les analyses spatiales
 st.markdown("### Analyse Spatiale")
