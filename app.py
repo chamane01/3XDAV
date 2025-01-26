@@ -1,210 +1,738 @@
 import streamlit as st
-import sqlite3
-import pandas as pd
+from streamlit_folium import st_folium, folium_static
 import folium
-from streamlit_folium import folium_static
-import plotly.express as px
+from folium.plugins import Draw, MeasureControl
+from folium import LayerControl
+import rasterio
+import rasterio.warp
+from rasterio.plot import reshape_as_image
+from PIL import Image
+from rasterio.warp import transform_bounds
+import numpy as np
+import geopandas as gpd
+from shapely.geometry import Polygon, Point, LineString, shape
+import json
+from io import BytesIO
+from rasterio.enums import Resampling
+from rasterio.warp import calculate_default_transform, reproject
+import matplotlib.pyplot as plt
+import os
+import uuid  # Pour générer des identifiants uniques
+from rasterio.mask import mask
+from shapely.geometry import LineString as ShapelyLineString
+from scipy.ndimage import gaussian_filter
+from matplotlib import cm
+from matplotlib.colors import Normalize
 
-# Fonction pour se connecter à la base de données SQLite
-def connect_to_db():
-    conn = sqlite3.connect('ageroute.db')
-    return conn
+# Dictionnaire des couleurs pour les types de fichiers GeoJSON
+geojson_colors = {
+    "Routes": "orange",
+    "Pistes": "brown",
+    "Plantations": "green",
+    "Bâtiments": "gray",
+    "Électricité": "yellow",
+    "Assainissements": "blue",
+    "Villages": "purple",
+    "Villes": "red",
+    "Chemin de fer": "black",
+    "Parc et réserves": "darkgreen",
+    "Cours d'eau": "lightblue",
+    "Polygonale": "pink"
+}
 
-# Fonction pour afficher le tableau de bord
-def dashboard():
-    st.title("Tableau de Bord Ageroute Côte d'Ivoire")
-
-    # Connexion à la base de données
-    conn = connect_to_db()
-    cur = conn.cursor()
-
-    # Section 1: Carte Interactive des Routes
-    st.header("Carte Interactive de Toutes les Routes")
-    m = folium.Map(location=[7.5399, -5.5471], zoom_start=7)  # Centré sur la Côte d'Ivoire
-
-    # Récupérer les défauts et les afficher sur la carte
-    cur.execute('SELECT * FROM Defauts')
-    defauts = cur.fetchall()
-    for defaut in defauts:
-        folium.Marker(
-            location=[defaut[3], defaut[4]],
-            popup=f"Défaut: {defaut[2]}",
-            icon=folium.Icon(color='red')
-        ).add_to(m)
-    folium_static(m)
-
-    # Section 2: Statistiques des Défauts par Mois
-    st.header("Statistiques des Défauts par Mois")
-
-    # Liste des mois de l'année
-    months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Jul", "Août", "Sep", "Oct", "Nov", "Déc"]
-    selected_month = st.selectbox("Sélectionner un mois", months)
-
-    # Récupérer les données pour le mois sélectionné
-    month_number = months.index(selected_month) + 1  # Convertir le mois en numéro
-    cur.execute('''
-        SELECT COUNT(DISTINCT Missions.id) AS nb_missions, 
-               SUM(CASE WHEN Defauts.type_defaut = "Fissure" THEN 1 ELSE 0 END) AS nb_fissures,
-               SUM(CASE WHEN Defauts.type_defaut = "Nid-de-poule" THEN 1 ELSE 0 END) AS nb_nids,
-               SUM(CASE WHEN Defauts.type_defaut = "Usure" THEN 1 ELSE 0 END) AS nb_usures
-        FROM Missions
-        LEFT JOIN Defauts ON Missions.id = Defauts.mission_id
-        WHERE strftime("%m", Missions.date) = ?
-    ''', (f"{month_number:02}",))  # Format MM
-
-    result = cur.fetchone()
-
-    if result:
-        nb_missions, nb_fissures, nb_nids, nb_usures = result
-        # Gérer les valeurs None
-        nb_fissures = nb_fissures if nb_fissures is not None else 0
-        nb_nids = nb_nids if nb_nids is not None else 0
-        nb_usures = nb_usures if nb_usures is not None else 0
-
-        st.write(f"Statistiques pour {selected_month}:")
-        st.write(f"- Nombre de missions réalisées: {nb_missions}")
-        st.write(f"- Fissures: {nb_fissures}")
-        st.write(f"- Nids-de-poule: {nb_nids}")
-        st.write(f"- Usures: {nb_usures}")
-
-        # Afficher un graphique des défauts
-        df_defauts = pd.DataFrame({
-            "Type de Défaut": ["Fissures", "Nids-de-poule", "Usures"],
-            "Nombre": [nb_fissures, nb_nids, nb_usures]
+# Fonction pour reprojeter un fichier TIFF avec un nom unique
+def reproject_tiff(input_tiff, target_crs):
+    """Reproject a TIFF file to a target CRS."""
+    with rasterio.open(input_tiff) as src:
+        transform, width, height = rasterio.warp.calculate_default_transform(
+            src.crs, target_crs, src.width, src.height, *src.bounds
+        )
+        kwargs = src.meta.copy()
+        kwargs.update({
+            "crs": target_crs,
+            "transform": transform,
+            "width": width,
+            "height": height,
         })
-        fig = px.bar(df_defauts, x="Type de Défaut", y="Nombre", title=f"Défauts pour {selected_month}")
-        st.plotly_chart(fig)
 
-        # Afficher les détails des défauts si disponibles
-        if nb_fissures > 0 or nb_nids > 0 or nb_usures > 0:
-            st.write("### Détails des Défauts")
-            cur.execute('''
-                SELECT Defauts.type_defaut, Defauts.latitude, Defauts.longitude
-                FROM Defauts
-                JOIN Missions ON Defauts.mission_id = Missions.id
-                WHERE strftime("%m", Missions.date) = ?
-            ''', (f"{month_number:02}",))
-            defauts_details = cur.fetchall()
-            for defaut in defauts_details:
-                st.write(f"- **Type:** {defaut[0]}, **Latitude:** {defaut[1]}, **Longitude:** {defaut[2]}")
-        else:
-            st.write("Aucun défaut identifié pour ce mois.")
+        # Générer un nom de fichier unique
+        unique_id = str(uuid.uuid4())[:8]  # Utilisation des 8 premiers caractères d'un UUID
+        reprojected_tiff = f"reprojected_{unique_id}.tiff"
+        with rasterio.open(reprojected_tiff, "w", **kwargs) as dst:
+            for i in range(1, src.count + 1):
+                rasterio.warp.reproject(
+                    source=rasterio.band(src, i),
+                    destination=rasterio.band(dst, i),
+                    src_transform=src.transform,
+                    src_crs=src.crs,
+                    dst_transform=transform,
+                    dst_crs=target_crs,
+                    resampling=rasterio.warp.Resampling.nearest,
+                )
+    return reprojected_tiff
+
+# Fonction pour appliquer un gradient de couleur à un MNT/MNS
+def apply_color_gradient(tiff_path, output_path):
+    """Apply a color gradient to the DEM TIFF and save it as a PNG."""
+    with rasterio.open(tiff_path) as src:
+        # Read the DEM data
+        dem_data = src.read(1)
+        
+        # Create a color map using matplotlib
+        cmap = plt.get_cmap("terrain")
+        norm = plt.Normalize(vmin=dem_data.min(), vmax=dem_data.max())
+        
+        # Apply the colormap
+        colored_image = cmap(norm(dem_data))
+        
+        # Save the colored image as PNG
+        plt.imsave(output_path, colored_image)
+        plt.close()
+
+# Fonction pour générer des courbes de niveau
+def generate_contour_lines(tiff_path, output_path, interval=10, sigma=1):
+    """Génère des courbes de niveau à partir d'un fichier TIFF et les sauvegarde en PNG."""
+    with rasterio.open(tiff_path) as src:
+        dem_data = src.read(1)
+        
+        # Appliquer un filtre gaussien pour lisser les données
+        dem_data = gaussian_filter(dem_data, sigma=sigma)
+        
+        # Générer les courbes de niveau
+        levels = np.arange(np.floor(dem_data.min()), np.ceil(dem_data.max()), interval)
+        norm = Normalize(vmin=dem_data.min(), vmax=dem_data.max())
+        cmap = cm.get_cmap("terrain")
+        
+        fig, ax = plt.subplots()
+        contour = ax.contour(dem_data, levels=levels, cmap=cmap, norm=norm)
+        plt.close(fig)
+        
+        # Sauvegarder les courbes de niveau en PNG
+        plt.imsave(output_path, contour.to_rgba(contour.cvalues), cmap=cmap)
+        plt.close()
+
+# Fonction pour ajouter une image TIFF à la carte
+def add_image_overlay(map_object, tiff_path, bounds, name):
+    """Add a TIFF image overlay to a Folium map."""
+    with rasterio.open(tiff_path) as src:
+        image = reshape_as_image(src.read())
+        folium.raster_layers.ImageOverlay(
+            image=image,
+            bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
+            name=name,
+            opacity=0.6,
+        ).add_to(map_object)
+
+# Fonction pour ajouter des courbes de niveau à la carte
+def add_contour_overlay(map_object, contour_path, bounds, name):
+    """Ajoute une couche de courbes de niveau à la carte Folium."""
+    folium.raster_layers.ImageOverlay(
+        image=contour_path,
+        bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
+        name=name,
+        opacity=0.6,
+    ).add_to(map_object)
+
+# Fonction pour calculer les limites d'un GeoJSON
+def calculate_geojson_bounds(geojson_data):
+    """Calculate bounds from a GeoJSON object."""
+    geometries = [feature["geometry"] for feature in geojson_data["features"]]
+    gdf = gpd.GeoDataFrame.from_features(geojson_data)
+    return gdf.total_bounds  # Returns [minx, miny, maxx, maxy]
+
+# Fonction pour charger un fichier TIFF
+def load_tiff(tiff_path):
+    """Charge un fichier TIFF et retourne les données et les bornes."""
+    try:
+        with rasterio.open(tiff_path) as src:
+            data = src.read(1)
+            bounds = src.bounds
+            transform = src.transform
+            if transform.is_identity:
+                st.warning("La transformation est invalide. Génération d'une transformation par défaut.")
+                transform, width, height = calculate_default_transform(src.crs, src.crs, src.width, src.height, *src.bounds)
+        return data, bounds, transform
+    except Exception as e:
+        st.error(f"Erreur lors du chargement du fichier TIFF : {e}")
+        return None, None, None
+
+# Fonction de validation de projection et d'emprise
+def validate_projection_and_extent(raster_path, polygons_gdf, target_crs):
+    """Vérifie la projection et l'emprise des polygones par rapport au raster."""
+    with rasterio.open(raster_path) as src:
+        # Vérification CRS
+        if src.crs != target_crs:
+            raise ValueError(f"Le raster {raster_path} n'est pas dans la projection {target_crs}")
+
+        # Conversion des polygones vers le CRS du raster
+        polygons_gdf = polygons_gdf.to_crs(src.crs)
+        
+        # Vérification de l'emprise
+        raster_bounds = src.bounds
+        for idx, row in polygons_gdf.iterrows():
+            if not row.geometry.intersects(Polygon.from_bounds(*raster_bounds)):
+                st.warning(f"Le polygone {idx} est en dehors de l'emprise du raster")
+
+    return polygons_gdf
+
+# Fonction pour calculer le volume et la surface pour chaque polygone (MNS - MNT)
+def calculate_volume_and_area_for_each_polygon(mns_path, mnt_path, polygons_gdf):
+    """Calcule le volume pour chaque polygone avec découpage précis."""
+    volumes = []
+    areas = []
+    
+    # Reprojection des polygones en UTM
+    with rasterio.open(mns_path) as src:
+        polygons_gdf = polygons_gdf.to_crs(src.crs)
+    
+    for idx, polygon in polygons_gdf.iterrows():
+        try:
+            # Découpage du MNS
+            with rasterio.open(mns_path) as src:
+                mns_clipped, mns_transform = mask(src, [polygon.geometry], crop=True, nodata=np.nan)
+                mns_data = mns_clipped[0]
+                cell_area = abs(mns_transform.a * mns_transform.e)  # Surface par cellule
+
+            # Découpage du MNT
+            with rasterio.open(mnt_path) as src:
+                mnt_clipped, _ = mask(src, [polygon.geometry], crop=True, nodata=np.nan)
+                mnt_data = mnt_clipped[0]
+
+            # Calcul différentiel
+            valid_mask = (~np.isnan(mns_data)) & (~np.isnan(mnt_data))
+            diff = np.where(valid_mask, mns_data - mnt_data, 0)
+            
+            # Calculs finaux
+            volume = np.sum(diff) * cell_area
+            area = np.count_nonzero(valid_mask) * cell_area
+            
+            volumes.append(volume)
+            areas.append(area)
+            
+            # Récupérer le nom de la polygonale
+            polygon_name = polygon.get("properties", {}).get("name", f"Polygone {idx + 1}")
+            st.write(f"{polygon_name} - Volume: {volume:.2f} m³, Surface: {area:.2f} m²")
+
+        except Exception as e:
+            st.error(f"Erreur sur le polygone {idx + 1}: {str(e)}")
+    
+    return volumes, areas
+
+# Fonction pour extraire les points sur les bords d'une polygonale
+def extract_boundary_points(polygon):
+    """Extrait les points situés sur les bords d'une polygonale."""
+    boundary = polygon.boundary
+    if isinstance(boundary, ShapelyLineString):
+        return list(boundary.coords)
     else:
-        st.write(f"Aucune donnée disponible pour {selected_month}.")
+        # Si la polygonale a des trous, on prend uniquement le contour extérieur
+        return list(polygon.exterior.coords)
 
-    # Section 3: Inspections Réalisées
-    st.header("Inspections Réalisées")
-    cur.execute('SELECT COUNT(*) FROM Missions')
-    total_missions = cur.fetchone()[0]
-    st.write(f"Nombre total de missions réalisées: {total_missions}")
+# Fonction pour calculer la cote moyenne des élévations sur les bords de la polygonale
+def calculate_average_elevation_on_boundary(mns_path, polygon):
+    """Calcule la cote moyenne des élévations sur les bords de la polygonale."""
+    with rasterio.open(mns_path) as src:
+        # Extraire les points sur les bords de la polygonale
+        boundary_points = extract_boundary_points(polygon)
+        
+        # Convertir les points en coordonnées raster
+        boundary_coords = [src.index(x, y) for (x, y) in boundary_points]
+        
+        # Extraire les élévations sur les bords
+        elevations = [src.read(1)[int(row), int(col)] for (row, col) in boundary_coords]
+        
+        # Calculer la cote moyenne
+        average_elevation = np.mean(elevations)
+    return average_elevation
 
-    # Section 4: Analyse par Route
-    st.header("Analyse par Route")
-    if st.button("Analyser par Route"):
-        conn = connect_to_db()
-        cur = conn.cursor()
-        cur.execute('SELECT * FROM Routes')
-        routes = cur.fetchall()
-        route_options = {route[0]: route[1] for route in routes}
-        selected_route_id = st.selectbox("Sélectionner une route", options=route_options.keys(), format_func=lambda x: route_options[x])
+# Fonction pour calculer le volume et la surface pour chaque polygone (MNS seul)
+def calculate_volume_and_area_with_mns_only(mns_path, polygons_gdf, use_average_elevation=True, reference_altitude=None):
+    """Calcule le volume et la surface pour chaque polygone en utilisant uniquement le MNS."""
+    volumes = []
+    areas = []
+    
+    # Reprojection des polygones en UTM
+    with rasterio.open(mns_path) as src:
+        polygons_gdf = polygons_gdf.to_crs(src.crs)
+    
+    for idx, polygon in polygons_gdf.iterrows():
+        try:
+            # Découpage du MNS
+            with rasterio.open(mns_path) as src:
+                mns_clipped, mns_transform = mask(src, [polygon.geometry], crop=True, nodata=np.nan)
+                mns_data = mns_clipped[0]
+                cell_area = abs(mns_transform.a * mns_transform.e)  # Surface par cellule
 
-        if selected_route_id:
-            # Récupérer les missions et les défauts pour la route sélectionnée
-            cur.execute('''
-                SELECT Missions.id, Missions.date, Defauts.type_defaut, Defauts.latitude, Defauts.longitude
-                FROM Missions
-                LEFT JOIN Defauts ON Missions.id = Defauts.mission_id
-                WHERE Missions.route_id = ?
-            ''', (selected_route_id,))
-            missions_defauts = cur.fetchall()
+            # Calcul de la cote de référence
+            if use_average_elevation:
+                reference_altitude = calculate_average_elevation_on_boundary(mns_path, polygon.geometry)
+            elif reference_altitude is None:
+                st.error("Veuillez fournir une altitude de référence.")
+                return [], []
 
-            if missions_defauts:
-                st.write(f"### Missions et Défauts sur la route {route_options[selected_route_id]}:")
-                missions_dict = {}
-                for mission in missions_defauts:
-                    mission_id, mission_date, type_defaut, latitude, longitude = mission
-                    if mission_id not in missions_dict:
-                        missions_dict[mission_id] = {
-                            "date": mission_date,
-                            "defauts": []
-                        }
-                    if type_defaut:  # Si un défaut est associé à la mission
-                        missions_dict[mission_id]["defauts"].append({
-                            "type": type_defaut,
-                            "latitude": latitude,
-                            "longitude": longitude
-                        })
+            # Calcul différentiel par rapport à la cote de référence
+            valid_mask = ~np.isnan(mns_data)
+            diff = np.where(valid_mask, mns_data - reference_altitude, 0)
+            
+            # Calculs finaux
+            volume = np.sum(diff) * cell_area
+            area = np.count_nonzero(valid_mask) * cell_area
+            
+            volumes.append(volume)
+            areas.append(area)
+            
+            # Récupérer le nom de la polygonale
+            polygon_name = polygon.get("properties", {}).get("name", f"Polygone {idx + 1}")
+            st.write(f"{polygon_name} - Volume: {volume:.2f} m³, Surface: {area:.2f} m², Cote de référence: {reference_altitude:.2f} m")
 
-                for mission_id, mission_data in missions_dict.items():
-                    st.write(f"**Mission du {mission_data['date']}**")
-                    if mission_data["defauts"]:
-                        for defaut in mission_data["defauts"]:
-                            st.write(f"- **Type:** {defaut['type']}, **Latitude:** {defaut['latitude']}, **Longitude:** {defaut['longitude']}")
-                    else:
-                        st.write("Aucun défaut identifié pour cette mission.")
-            else:
-                st.write(f"Aucune mission ou défaut identifié sur la route {route_options[selected_route_id]}.")
-        conn.close()
+        except Exception as e:
+            st.error(f"Erreur sur le polygone {idx + 1}: {str(e)}")
+    
+    return volumes, areas
 
-    # Section 5: Génération de Rapports
-    st.header("Générer des Rapports")
-    report_type = st.radio("Type de rapport", ["Journalier", "Mensuel", "Annuel"])
-    if st.button("Générer le rapport"):
-        st.write(f"Génération du rapport {report_type.lower()} en cours de développement")
+# Fonction pour calculer le volume global
+def calculate_global_volume(volumes):
+    """Calcule le volume global en additionnant les volumes individuels."""
+    return sum(volumes)
 
-    # Section 6: Alertes
-    st.header("Alertes")
-    st.write("Nid-de-poule dangereux détecté sur l’Autoroute du Nord (Section Yamoussoukro-Bouaké)")
-    st.write("Fissures multiples sur le Pont HKB à Abidjan")
-    st.write("Usures importantes sur la Nationale A3 (Abidjan-Adzopé)")
+# Fonction pour calculer la surface globale
+def calculate_global_area(areas):
+    """Calcule la surface globale en additionnant les surfaces individuelles."""
+    return sum(areas)
 
-    # Section 7: Inspections par Date
-    st.header("Inspections par Date")
-    selected_date = st.date_input("Sélectionner une date")
-    if st.button("Voir les inspections pour cette date"):
-        st.write(f"Inspections pour {selected_date}: En cours de développement")
+# Fonction pour rechercher des polygones dans les couches téléversées
+def find_polygons_in_layers(layers):
+    """Recherche des polygones dans les couches téléversées."""
+    polygons = []
+    for layer in layers:
+        if layer["type"] == "GeoJSON":
+            geojson_data = layer["data"]
+            for feature in geojson_data["features"]:
+                if feature["geometry"]["type"] == "Polygon":
+                    polygons.append(feature)
+    return polygons
 
-    # Fermer la connexion
-    conn.close()
+# Fonction pour rechercher des polygones dans les couches créées par l'utilisateur
+def find_polygons_in_user_layers(layers):
+    """Recherche des polygones dans les couches créées par l'utilisateur."""
+    polygons = []
+    for layer_name, features in layers.items():
+        for feature in features:
+            if feature["geometry"]["type"] == "Polygon":
+                polygons.append(feature)
+    return polygons
 
-# Fonction pour ajouter une mission
-def add_mission():
-    st.title("Ajouter une Mission")
-    uploaded_files = st.file_uploader("Charger les images de la mission drone", type=["jpg", "png"], accept_multiple_files=True)
-    if uploaded_files:
-        st.write(f"{len(uploaded_files)} images chargées.")
-        if st.button("Lancer l'analyse par IA"):
-            st.write("Analyse en cours...")
-            # Ici, vous pouvez ajouter le code pour l'analyse IA
-            st.write("Résultats de l'analyse: En cours de développement")
+# Fonction pour convertir les polygones en GeoDataFrame
+def convert_polygons_to_gdf(polygons):
+    """Convertit une liste de polygones en GeoDataFrame."""
+    geometries = [shape(polygon["geometry"]) for polygon in polygons]
+    properties = [polygon.get("properties", {}) for polygon in polygons]
+    gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")
+    gdf["properties"] = properties
+    return gdf
 
-    # Bouton pour afficher l'historique des missions
-    if st.button("Historique des Missions"):
-        conn = connect_to_db()
-        cur = conn.cursor()
-        cur.execute('''
-            SELECT Missions.id, Missions.date, Routes.nom, Missions.images
-            FROM Missions
-            JOIN Routes ON Missions.route_id = Routes.id
-        ''')
-        missions = cur.fetchall()
-        if missions:
-            st.write("### Historique des Missions")
-            for mission in missions:
-                mission_id, mission_date, route_nom, images = mission
-                st.write(f"**Mission ID:** {mission_id}")
-                st.write(f"- **Date:** {mission_date}")
-                st.write(f"- **Route:** {route_nom}")
-                st.write(f"- **Images:** {images}")
+# Fonction pour convertir les entités dessinées en GeoDataFrame
+def convert_drawn_features_to_gdf(features):
+    """Convertit les entités dessinées en GeoDataFrame."""
+    geometries = []
+    properties = []
+    for feature in features:
+        geom = shape(feature["geometry"])
+        geometries.append(geom)
+        properties.append(feature.get("properties", {}))
+    gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")
+    gdf["properties"] = properties
+    return gdf
+
+# Initialisation des couches et des entités dans la session Streamlit
+if "layers" not in st.session_state:
+    st.session_state["layers"] = {}  # Couches créées par l'utilisateur
+
+if "uploaded_layers" not in st.session_state:
+    st.session_state["uploaded_layers"] = []  # Couches téléversées (TIFF et GeoJSON)
+
+if "new_features" not in st.session_state:
+    st.session_state["new_features"] = []  # Entités temporairement dessinées
+
+# Titre de l'application
+st.title("Carte Topographique et Analyse Spatiale")
+
+# Description
+st.markdown("""
+Créez des entités géographiques (points, lignes, polygones) en les dessinant sur la carte et ajoutez-les à des couches spécifiques. 
+Vous pouvez également téléverser des fichiers TIFF ou GeoJSON pour les superposer à la carte.
+""")
+
+# Sidebar pour la gestion des couches
+with st.sidebar:
+    st.header("Gestion des Couches")
+
+    # Section 1: Ajout d'une nouvelle couche
+    st.markdown("### 1- Ajouter une nouvelle couche")
+    new_layer_name = st.text_input("Nom de la nouvelle couche à ajouter", "")
+    if st.button("Ajouter la couche", key="add_layer_button", help="Ajouter une nouvelle couche", type="primary") and new_layer_name:
+        if new_layer_name not in st.session_state["layers"]:
+            st.session_state["layers"][new_layer_name] = []
+            st.success(f"La couche '{new_layer_name}' a été ajoutée.")
         else:
-            st.write("Aucune mission trouvée dans la base de données.")
-        conn.close()
+            st.warning(f"La couche '{new_layer_name}' existe déjà.")
 
-# Page d'Accueil
-st.sidebar.title("Navigation")
-choice = st.sidebar.radio("Choisir une option", ["Tableau de Bord", "Ajouter une Mission"])
+    # Sélection de la couche active pour ajouter les nouvelles entités
+    st.markdown("#### Sélectionner une couche active")
+    if st.session_state["layers"]:
+        layer_name = st.selectbox(
+            "Choisissez la couche à laquelle ajouter les entités",
+            list(st.session_state["layers"].keys())
+        )
+    else:
+        st.write("Aucune couche disponible. Ajoutez une couche pour commencer.")
 
-if choice == "Tableau de Bord":
-    dashboard()
-elif choice == "Ajouter une Mission":
-    add_mission()
+    # Affichage des entités temporairement dessinées
+    if st.session_state["new_features"]:
+        st.write(f"**Entités dessinées temporairement ({len(st.session_state['new_features'])}) :**")
+        for idx, feature in enumerate(st.session_state["new_features"]):
+            st.write(f"- Entité {idx + 1}: {feature['geometry']['type']}")
+
+    # Bouton pour enregistrer les nouvelles entités dans la couche active
+    if st.button("Enregistrer les entités", key="save_features_button", type="primary") and st.session_state["layers"]:
+        # Ajouter les entités non dupliquées à la couche sélectionnée
+        current_layer = st.session_state["layers"][layer_name]
+        for feature in st.session_state["new_features"]:
+            if feature not in current_layer:
+                current_layer.append(feature)
+        st.session_state["new_features"] = []  # Réinitialisation des entités temporaires
+        st.success(f"Toutes les nouvelles entités ont été enregistrées dans la couche '{layer_name}'.")
+
+    # Gestion des entités dans les couches
+    st.markdown("#### Gestion des entités dans les couches")
+    if st.session_state["layers"]:
+        selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()))
+        if st.session_state["layers"][selected_layer]:
+            entity_idx = st.selectbox(
+                "Sélectionnez une entité à gérer",
+                range(len(st.session_state["layers"][selected_layer])),
+                format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}"
+            )
+            selected_entity = st.session_state["layers"][selected_layer][entity_idx]
+            current_name = selected_entity.get("properties", {}).get("name", "")
+            new_name = st.text_input("Nom de l'entité", current_name)
+
+            if st.button("Modifier le nom", key=f"edit_{entity_idx}", type="primary"):
+                if "properties" not in selected_entity:
+                    selected_entity["properties"] = {}
+                selected_entity["properties"]["name"] = new_name
+                st.success(f"Le nom de l'entité a été mis à jour en '{new_name}'.")
+
+            if st.button("Supprimer l'entité sélectionnée", key=f"delete_{entity_idx}", type="secondary"):
+                st.session_state["layers"][selected_layer].pop(entity_idx)
+                st.success(f"L'entité sélectionnée a été supprimée de la couche '{selected_layer}'.")
+        else:
+            st.write("Aucune entité dans cette couche pour le moment.")
+    else:
+        st.write("Aucune couche disponible pour gérer les entités.")
+
+    # Démarcation claire entre 1- et 2-
+    st.markdown("---")
+
+    # Section 2: Téléversement de fichiers
+    st.markdown("### 2- Téléverser des fichiers")
+    tiff_type = st.selectbox(
+        "Sélectionnez le type de fichier TIFF",
+        options=["MNT", "MNS", "Orthophoto"],
+        index=None,
+        placeholder="Veuillez sélectionner",
+        key="tiff_selectbox"
+    )
+
+    if tiff_type:
+        uploaded_tiff = st.file_uploader(f"Téléverser un fichier TIFF ({tiff_type})", type=["tif", "tiff"], key="tiff_uploader")
+
+        if uploaded_tiff:
+            # Générer un nom de fichier unique pour le fichier téléversé
+            unique_id = str(uuid.uuid4())[:8]
+            tiff_path = f"uploaded_{unique_id}.tiff"
+            with open(tiff_path, "wb") as f:
+                f.write(uploaded_tiff.read())
+
+            st.write(f"Reprojection du fichier TIFF ({tiff_type})...")
+            try:
+                reprojected_tiff = reproject_tiff(tiff_path, "EPSG:4326")
+                with rasterio.open(reprojected_tiff) as src:
+                    bounds = src.bounds
+                    # Vérifier si la couche existe déjà
+                    if not any(layer["name"] == tiff_type and layer["type"] == "TIFF" for layer in st.session_state["uploaded_layers"]):
+                        st.session_state["uploaded_layers"].append({"type": "TIFF", "name": tiff_type, "path": reprojected_tiff, "bounds": bounds})
+                        st.success(f"Couche {tiff_type} ajoutée à la liste des couches.")
+                    else:
+                        st.warning(f"La couche {tiff_type} existe déjà.")
+            except Exception as e:
+                st.error(f"Erreur lors de la reprojection : {e}")
+            finally:
+                # Supprimer le fichier temporaire après utilisation
+                os.remove(tiff_path)
+
+    geojson_type = st.selectbox(
+        "Sélectionnez le type de fichier GeoJSON",
+        options=[
+            "Polygonale", "Routes", "Cours d'eau", "Bâtiments", "Pistes", "Plantations",
+            "Électricité", "Assainissements", "Villages", "Villes", "Chemin de fer", "Parc et réserves"
+        ],
+        index=None,
+        placeholder="Veuillez sélectionner",
+        key="geojson_selectbox"
+    )
+
+    if geojson_type:
+        uploaded_geojson = st.file_uploader(f"Téléverser un fichier GeoJSON ({geojson_type})", type=["geojson"], key="geojson_uploader")
+
+        if uploaded_geojson:
+            try:
+                geojson_data = json.load(uploaded_geojson)
+                # Vérifier si la couche existe déjà
+                if not any(layer["name"] == geojson_type and layer["type"] == "GeoJSON" for layer in st.session_state["uploaded_layers"]):
+                    st.session_state["uploaded_layers"].append({"type": "GeoJSON", "name": geojson_type, "data": geojson_data})
+                    st.success(f"Couche {geojson_type} ajoutée à la liste des couches.")
+                else:
+                    st.warning(f"La couche {geojson_type} existe déjà.")
+            except Exception as e:
+                st.error(f"Erreur lors du chargement du GeoJSON : {e}")
+
+    # Liste des couches téléversées
+    st.markdown("### Liste des couches téléversées")
+    if st.session_state["uploaded_layers"]:
+        for i, layer in enumerate(st.session_state["uploaded_layers"]):
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.write(f"{i + 1}. {layer['name']} ({layer['type']})")
+            with col2:
+                if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche", type="secondary"):
+                    st.session_state["uploaded_layers"].pop(i)
+                    st.success(f"Couche {layer['name']} supprimée.")
+    else:
+        st.write("Aucune couche téléversée pour le moment.")
+
+# Carte de base
+m = folium.Map(location=[7.5399, -5.5471], zoom_start=6)  # Centré sur la Côte d'Ivoire avec un zoom adapté
+
+# Ajout des fonds de carte
+folium.TileLayer(
+    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attr="Esri",
+    name="Satellite",
+).add_to(m)
+
+folium.TileLayer(
+    tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    attr="OpenTopoMap",
+    name="Topographique",
+).add_to(m)  # Carte topographique ajoutée en dernier pour être la carte par défaut
+
+# Ajout des couches créées à la carte
+for layer, features in st.session_state["layers"].items():
+    layer_group = folium.FeatureGroup(name=layer, show=True)
+    for feature in features:
+        feature_type = feature["geometry"]["type"]
+        coordinates = feature["geometry"]["coordinates"]
+        popup = feature.get("properties", {}).get("name", f"{layer} - Entité")
+
+        if feature_type == "Point":
+            lat, lon = coordinates[1], coordinates[0]
+            folium.Marker(location=[lat, lon], popup=popup).add_to(layer_group)
+        elif feature_type == "LineString":
+            folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color="blue", popup=popup).add_to(layer_group)
+        elif feature_type == "Polygon":
+            folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True, popup=popup).add_to(layer_group)
+    layer_group.add_to(m)
+
+# Ajout des couches téléversées à la carte
+for layer in st.session_state["uploaded_layers"]:
+    if layer["type"] == "TIFF":
+        if layer["name"] in ["MNT", "MNS"]:
+            # Générer un nom de fichier unique pour l'image colorée
+            unique_id = str(uuid.uuid4())[:8]
+            temp_png_path = f"{layer['name'].lower()}_colored_{unique_id}.png"
+            apply_color_gradient(layer["path"], temp_png_path)
+            add_image_overlay(m, temp_png_path, layer["bounds"], layer["name"])
+            os.remove(temp_png_path)  # Supprimer le fichier PNG temporaire
+            
+            # Générer les courbes de niveau
+            contour_path = f"{layer['name'].lower()}_contour_{unique_id}.png"
+            generate_contour_lines(layer["path"], contour_path, interval=10, sigma=1)
+            add_contour_overlay(m, contour_path, layer["bounds"], f"{layer['name']} Contours")
+            os.remove(contour_path)  # Supprimer le fichier PNG temporaire
+        else:
+            add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
+        
+        # Ajuster la vue de la carte pour inclure l'image TIFF
+        bounds = [[layer["bounds"].bottom, layer["bounds"].left], [layer["bounds"].top, layer["bounds"].right]]
+        m.fit_bounds(bounds)
+    elif layer["type"] == "GeoJSON":
+        color = geojson_colors.get(layer["name"], "blue")
+        folium.GeoJson(
+            layer["data"],
+            name=layer["name"],
+            style_function=lambda x, color=color: {
+                "color": color,
+                "weight": 4,
+                "opacity": 0.7
+            }
+        ).add_to(m)
+
+# Gestionnaire de dessin
+draw = Draw(
+    draw_options={
+        "polyline": True,
+        "polygon": True,
+        "circle": False,
+        "rectangle": True,
+        "marker": True,
+        "circlemarker": False,
+    },
+    edit_options={"edit": True, "remove": True},
+)
+draw.add_to(m)
+
+# Ajout du contrôle des couches pour basculer entre les fonds de carte
+LayerControl(position="topleft", collapsed=True).add_to(m)
+
+# Affichage interactif de la carte
+output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
+
+# Gestion des nouveaux dessins
+if output and "last_active_drawing" in output and output["last_active_drawing"]:
+    new_feature = output["last_active_drawing"]
+    if new_feature not in st.session_state["new_features"]:
+        st.session_state["new_features"].append(new_feature)
+        st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
+
+# Initialisation de l'état de session pour le bouton actif
+if 'active_button' not in st.session_state:
+    st.session_state['active_button'] = None
+
+# Fonction pour afficher les paramètres en fonction du bouton cliqué
+def display_parameters(button_name):
+    if button_name == "Surfaces et volumes":
+        st.markdown("### Calcul des volumes et des surfaces")
+        method = st.radio(
+            "Choisissez la méthode de calcul :",
+            ("Méthode 1 : MNS - MNT", "Méthode 2 : MNS seul"),
+            key="volume_method"
+        )
+
+        # Récupérer les couches nécessaires
+        mns_layer = next((layer for layer in st.session_state["uploaded_layers"] if layer["name"] == "MNS"), None)
+        mnt_layer = next((layer for layer in st.session_state["uploaded_layers"] if layer["name"] == "MNT"), None)
+
+        if not mns_layer:
+            st.error("La couche MNS est manquante. Veuillez téléverser un fichier MNS.")
+            return
+        if method == "Méthode 1 : MNS - MNT" and not mnt_layer:
+            st.error("La couche MNT est manquante. Veuillez téléverser un fichier MNT.")
+            return
+
+        # Reprojection des fichiers en UTM
+        try:
+            mns_utm_path = reproject_tiff(mns_layer["path"], "EPSG:32630")
+            if method == "Méthode 1 : MNS - MNT":
+                mnt_utm_path = reproject_tiff(mnt_layer["path"], "EPSG:32630")
+        except Exception as e:
+            st.error(f"Échec de la reprojection : {e}")
+            return
+
+        # Récupération des polygones
+        polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
+        polygons_user_layers = find_polygons_in_user_layers(st.session_state["layers"])
+        polygons_drawn = st.session_state["new_features"]
+        all_polygons = polygons_uploaded + polygons_user_layers + polygons_drawn
+
+        if not all_polygons:
+            st.error("Aucune polygonale disponible.")
+            return
+
+        # Conversion en GeoDataFrame
+        polygons_gdf = convert_polygons_to_gdf(all_polygons)
+
+        try:
+            # Validation des données
+            polygons_gdf_utm = validate_projection_and_extent(mns_utm_path, polygons_gdf, "EPSG:32630")
+            
+            if method == "Méthode 1 : MNS - MNT":
+                # Calcul avec MNS et MNT
+                volumes, areas = calculate_volume_and_area_for_each_polygon(
+                    mns_utm_path, 
+                    mnt_utm_path,
+                    polygons_gdf_utm
+                )
+            else:
+                # Choix de la méthode de calcul pour MNS seul
+                use_average_elevation = st.checkbox(
+                    "Utiliser la cote moyenne des élévations sur les bords de la polygonale comme référence",
+                    value=True,
+                    key="use_average_elevation"
+                )
+                reference_altitude = None
+                if not use_average_elevation:
+                    reference_altitude = st.number_input(
+                        "Entrez l'altitude de référence (en mètres) :",
+                        value=0.0,
+                        step=0.1,
+                        key="reference_altitude"
+                    )
+                
+                # Calcul avec MNS seul
+                volumes, areas = calculate_volume_and_area_with_mns_only(
+                    mns_utm_path,
+                    polygons_gdf_utm,
+                    use_average_elevation=use_average_elevation,
+                    reference_altitude=reference_altitude
+                )
+            
+            # Calcul des volumes et surfaces globaux
+            global_volume = calculate_global_volume(volumes)
+            global_area = calculate_global_area(areas)
+            st.write(f"Volume global : {global_volume:.2f} m³")
+            st.write(f"Surface globale : {global_area:.2f} m²")
+            
+            # Nettoyage des fichiers temporaires
+            os.remove(mns_utm_path)
+            if method == "Méthode 1 : MNS - MNT":
+                os.remove(mnt_utm_path)
+
+        except Exception as e:
+            st.error(f"Erreur lors du calcul : {e}")
+            # Nettoyage en cas d'erreur
+            if os.path.exists(mns_utm_path):
+                os.remove(mns_utm_path)
+            if method == "Méthode 1 : MNS - MNT" and os.path.exists(mnt_utm_path):
+                os.remove(mnt_utm_path)
+
+# Ajout des boutons pour les analyses spatiales
+st.markdown("### Analyse Spatiale")
+col1, col2, col3 = st.columns(3)
+
+# Boutons principaux
+with col1:
+    if st.button("Surfaces et volumes", key="surfaces_volumes"):
+        st.session_state['active_button'] = "Surfaces et volumes"
+    if st.button("Carte de contours", key="contours"):
+        st.session_state['active_button'] = "Carte de contours"
+
+with col2:
+    if st.button("Trouver un point", key="trouver_point"):
+        st.session_state['active_button'] = "Trouver un point"
+    if st.button("Générer un rapport", key="generer_rapport"):
+        st.session_state['active_button'] = "Générer un rapport"
+
+with col3:
+    if st.button("Télécharger la carte", key="telecharger_carte"):
+        st.session_state['active_button'] = "Télécharger la carte"
+    if st.button("Dessin automatique", key="dessin_auto"):
+        st.session_state['active_button'] = "Dessin automatique"
+
+# Création d'un espace réservé pour les paramètres
+parameters_placeholder = st.empty()
+
+# Affichage des paramètres en fonction du bouton actif
+if st.session_state['active_button']:
+    with parameters_placeholder.container():
+        display_parameters(st.session_state['active_button'])
