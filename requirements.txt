@@ -24,4 +24,4 @@ pyogrio
 fiona
 plotly
 folium
-gaussian_filter
+
