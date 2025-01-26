@@ -20,6 +20,7 @@ import os
 import uuid  # Pour générer des identifiants uniques
 from rasterio.mask import mask
 from shapely.geometry import LineString as ShapelyLineString
+from scipy.ndimage import gaussian_filter
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
