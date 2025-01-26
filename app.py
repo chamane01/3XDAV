@@ -20,9 +20,6 @@ import os
 import uuid  # Pour générer des identifiants uniques
 from rasterio.mask import mask
 from shapely.geometry import LineString as ShapelyLineString
-from scipy.ndimage import gaussian_filter
-from matplotlib import cm
-from matplotlib.colors import Normalize
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -89,28 +86,6 @@ def apply_color_gradient(tiff_path, output_path):
         plt.imsave(output_path, colored_image)
         plt.close()
 
-# Fonction pour générer des courbes de niveau
-def generate_contour_lines(tiff_path, output_path, interval=10, sigma=1):
-    """Génère des courbes de niveau à partir d'un fichier TIFF et les sauvegarde en PNG."""
-    with rasterio.open(tiff_path) as src:
-        dem_data = src.read(1)
-        
-        # Appliquer un filtre gaussien pour lisser les données
-        dem_data = gaussian_filter(dem_data, sigma=sigma)
-        
-        # Générer les courbes de niveau
-        levels = np.arange(np.floor(dem_data.min()), np.ceil(dem_data.max()), interval)
-        norm = Normalize(vmin=dem_data.min(), vmax=dem_data.max())
-        cmap = cm.get_cmap("terrain")
-        
-        fig, ax = plt.subplots()
-        contour = ax.contour(dem_data, levels=levels, cmap=cmap, norm=norm)
-        plt.close(fig)
-        
-        # Sauvegarder les courbes de niveau en PNG
-        plt.imsave(output_path, contour.to_rgba(contour.cvalues), cmap=cmap)
-        plt.close()
-
 # Fonction pour ajouter une image TIFF à la carte
 def add_image_overlay(map_object, tiff_path, bounds, name):
     """Add a TIFF image overlay to a Folium map."""
@@ -122,16 +97,6 @@ def add_image_overlay(map_object, tiff_path, bounds, name):
             name=name,
             opacity=0.6,
         ).add_to(map_object)
-
-# Fonction pour ajouter des courbes de niveau à la carte
-def add_contour_overlay(map_object, contour_path, bounds, name):
-    """Ajoute une couche de courbes de niveau à la carte Folium."""
-    folium.raster_layers.ImageOverlay(
-        image=contour_path,
-        bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
-        name=name,
-        opacity=0.6,
-    ).add_to(map_object)
 
 # Fonction pour calculer les limites d'un GeoJSON
 def calculate_geojson_bounds(geojson_data):
@@ -554,12 +519,6 @@ for layer in st.session_state["uploaded_layers"]:
             apply_color_gradient(layer["path"], temp_png_path)
             add_image_overlay(m, temp_png_path, layer["bounds"], layer["name"])
             os.remove(temp_png_path)  # Supprimer le fichier PNG temporaire
-            
-            # Générer les courbes de niveau
-            contour_path = f"{layer['name'].lower()}_contour_{unique_id}.png"
-            generate_contour_lines(layer["path"], contour_path, interval=10, sigma=1)
-            add_contour_overlay(m, contour_path, layer["bounds"], f"{layer['name']} Contours")
-            os.remove(contour_path)  # Supprimer le fichier PNG temporaire
         else:
             add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
         
