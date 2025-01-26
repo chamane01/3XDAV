@@ -37,6 +37,14 @@ geojson_colors = {
     "Polygonale": "pink"
 }
 
+
+
+
+
+
+
+
+
 # Fonction pour reprojeter un fichier TIFF avec un nom unique
 def reproject_tiff(input_tiff, target_crs):
     """Reproject a TIFF file to a target CRS."""
@@ -309,6 +317,44 @@ def convert_drawn_features_to_gdf(features):
     gdf["properties"] = properties
     return gdf
 
+
+def generate_contour_lines(tiff_path, output_path, interval=10, sigma=1):
+    """Génère des courbes de niveau à partir d'un fichier TIFF et les sauvegarde en PNG."""
+    with rasterio.open(tiff_path) as src:
+        dem_data = src.read(1)
+        
+        # Appliquer un filtre gaussien pour lisser les données
+        dem_data = gaussian_filter(dem_data, sigma=sigma)
+        
+        # Générer les courbes de niveau
+        levels = np.arange(np.floor(dem_data.min()), np.ceil(dem_data.max()), interval)
+        norm = Normalize(vmin=dem_data.min(), vmax=dem_data.max())
+        cmap = cm.get_cmap("terrain")
+        
+        fig, ax = plt.subplots()
+        contour = ax.contour(dem_data, levels=levels, cmap=cmap, norm=norm)
+        plt.close(fig)
+        
+        # Sauvegarder les courbes de niveau en PNG
+        plt.imsave(output_path, contour.to_rgba(contour.cvalues), cmap=cmap)
+        plt.close()
+
+
+def add_contour_overlay(map_object, contour_path, bounds, name):
+    """Ajoute une couche de courbes de niveau à la carte Folium."""
+    folium.raster_layers.ImageOverlay(
+        image=contour_path,
+        bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
+        name=name,
+        opacity=0.6,
+    ).add_to(map_object)
+
+
+
+
+
+
+
 # Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
     st.session_state["layers"] = {}  # Couches créées par l'utilisateur
@@ -568,6 +614,63 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
 if 'active_button' not in st.session_state:
     st.session_state['active_button'] = None
 
+
+
+
+
+
+
+
+# Fonction pour afficher les paramètres de la carte de contours
+def display_contour_parameters():
+    st.markdown("### Carte de contours")
+    
+    # Sélection de la couche MNT ou MNS pour générer les contours
+    contour_layer = st.selectbox(
+        "Sélectionnez la couche pour générer les contours",
+        options=[layer["name"] for layer in st.session_state["uploaded_layers"] if layer["name"] in ["MNT", "MNS"]],
+        key="contour_layer_selectbox"
+    )
+    
+    if contour_layer:
+        # Paramètres de génération des contours
+        interval = st.number_input("Intervalle entre les courbes de niveau (en mètres)", min_value=1, value=10, key="contour_interval")
+        sigma = st.slider("Degré de lissage (sigma)", min_value=0.1, max_value=5.0, value=1.0, step=0.1, key="contour_sigma")
+        
+        if st.button("Générer les contours", key="generate_contours_button"):
+            # Trouver le fichier TIFF correspondant à la couche sélectionnée
+            tiff_path = next((layer["path"] for layer in st.session_state["uploaded_layers"] if layer["name"] == contour_layer), None)
+            
+            if tiff_path:
+                # Générer un nom de fichier unique pour les contours
+                unique_id = str(uuid.uuid4())[:8]
+                contour_path = f"{contour_layer.lower()}_contour_{unique_id}.png"
+                
+                # Générer les courbes de niveau
+                generate_contour_lines(tiff_path, contour_path, interval=interval, sigma=sigma)
+                
+                # Ajouter les contours à la carte
+                bounds = next((layer["bounds"] for layer in st.session_state["uploaded_layers"] if layer["name"] == contour_layer), None)
+                if bounds:
+                    add_contour_overlay(m, contour_path, bounds, f"{contour_layer} Contours")
+                    st.success(f"Les contours ont été générés et ajoutés à la carte avec un intervalle de {interval} mètres.")
+                else:
+                    st.error("Impossible de déterminer les limites de la couche.")
+            else:
+                st.error("Aucun fichier TIFF trouvé pour la couche sélectionnée.")
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Fonction pour afficher les paramètres en fonction du bouton cliqué
 def display_parameters(button_name):
     if button_name == "Surfaces et volumes":
@@ -664,6 +767,10 @@ def display_parameters(button_name):
                 os.remove(mns_utm_path)
             if method == "Méthode 1 : MNS - MNT" and os.path.exists(mnt_utm_path):
                 os.remove(mnt_utm_path)
+
+    elif button_name == "Carte de contours":
+        display_contour_parameters()
+
 
 # Ajout des boutons pour les analyses spatiales
 st.markdown("### Analyse Spatiale")
