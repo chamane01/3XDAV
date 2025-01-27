@@ -352,29 +352,6 @@ def convert_drawn_features_to_gdf(features):
     gdf["properties"] = properties
     return gdf
 
-# Initialisation des états de session
-if "layers" not in st.session_state:
-    st.session_state["layers"] = {}  # Couches créées par l'utilisateur
-
-if "uploaded_layers" not in st.session_state:
-    st.session_state["uploaded_layers"] = []  # Couches téléversées (TIFF et GeoJSON)
-
-if "new_features" not in st.session_state:
-    st.session_state["new_features"] = []  # Entités temporairement dessinées
-
-if "active_button" not in st.session_state:
-    st.session_state["active_button"] = None  # Bouton actif pour l'analyse spatiale
-
-# Titre de l'application
-st.title("Carte Topographique et Analyse Spatiale")
-
-# Description
-st.markdown("""
-Créez des entités géographiques (points, lignes, polygones) en les dessinant sur la carte et ajoutez-les à des couches spécifiques. 
-Vous pouvez également téléverser des fichiers TIFF ou GeoJSON pour les superposer à la carte.
-""")
-
-# ... (le reste du code reste inchangé jusqu'à la fin)
 
 # Affichage des paramètres en fonction du bouton actif
 if st.session_state.get('active_button'):  # Utilisation de .get() pour éviter KeyError
