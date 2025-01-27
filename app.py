@@ -17,9 +17,11 @@ from rasterio.enums import Resampling
 from rasterio.warp import calculate_default_transform, reproject
 import matplotlib.pyplot as plt
 import os
-import uuid  # Pour générer des identifiants uniques
+import uuid
 from rasterio.mask import mask
 from shapely.geometry import LineString as ShapelyLineString
+from matplotlib.colors import Normalize
+from matplotlib import cm
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -139,6 +141,47 @@ def validate_projection_and_extent(raster_path, polygons_gdf, target_crs):
                 st.warning(f"Le polygone {idx} est en dehors de l'emprise du raster")
 
     return polygons_gdf
+
+# Fonction pour générer des courbes de niveau (version simplifiée sans SciPy)
+def generate_contour_lines(tiff_path, output_path, interval=10):
+    """Génère des courbes de niveau à partir d'un fichier TIFF."""
+    with rasterio.open(tiff_path) as src:
+        dem_data = src.read(1)
+        
+        # Créer une figure matplotlib avec fond transparent
+        fig, ax = plt.subplots(figsize=(10, 10))
+        fig.patch.set_alpha(0.0)  # Fond transparent
+        ax.axis('off')
+
+        # Générer les contours
+        levels = np.arange(np.floor(dem_data.min()), np.ceil(dem_data.max()), interval)
+        contour = ax.contour(dem_data, levels=levels, colors='black', linewidths=0.5)
+
+        # Sauvegarder en PNG avec transparence
+        plt.savefig(output_path, bbox_inches='tight', pad_inches=0, transparent=True)
+        plt.close()
+
+# Fonction pour ajouter les contours à la carte
+def add_contour_overlay(map_object, contour_path, tiff_bounds):
+    """Ajoute les contours générés à la carte Folium."""
+    # Calculer les coordonnées des bords dans l'ordre [sud, ouest, nord, est]
+    bounds = [
+        [tiff_bounds.bottom, tiff_bounds.left],
+        [tiff_bounds.top, tiff_bounds.right]
+    ]
+    
+    # Ajouter l'overlay des contours
+    folium.raster_layers.ImageOverlay(
+        image=contour_path,
+        bounds=bounds,
+        opacity=0.7,
+        interactive=True,
+        cross_origin=True,
+        name="Contours"
+    ).add_to(map_object)
+    
+    # Ajouter un contrôle de couche pour activer/désactiver les contours
+    LayerControl(position="topleft", collapsed=True).add_to(map_object)
 
 # Fonction pour calculer le volume et la surface pour chaque polygone (MNS - MNT)
 def calculate_volume_and_area_for_each_polygon(mns_path, mnt_path, polygons_gdf):
@@ -568,6 +611,38 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
 if 'active_button' not in st.session_state:
     st.session_state['active_button'] = None
 
+# Fonction pour afficher les paramètres de la carte de contours
+def display_contour_parameters():
+    st.markdown("### Carte de contours")
+    
+    contour_layer = st.selectbox(
+        "Sélectionnez la couche pour générer les contours",
+        options=[layer["name"] for layer in st.session_state["uploaded_layers"] if layer["name"] in ["MNT", "MNS"]],
+        key="contour_layer_selectbox"
+    )
+    
+    if contour_layer:
+        interval = st.number_input("Intervalle entre les courbes de niveau (en mètres)", min_value=1, value=5)
+        
+        if st.button("Générer les contours", key="generate_contours_button"):
+            tiff_layer = next(layer for layer in st.session_state["uploaded_layers"] if layer["name"] == contour_layer)
+            
+            # Générer un nom de fichier unique
+            unique_id = str(uuid.uuid4())[:8]
+            contour_path = f"contours_{unique_id}.png"
+            
+            # Générer les contours
+            generate_contour_lines(tiff_layer["path"], contour_path, interval=interval)
+            
+            # Ajouter à la carte
+            add_contour_overlay(m, contour_path, tiff_layer["bounds"])
+            
+            # Afficher un message de succès
+            st.success("Les contours ont été générés et ajoutés à la carte.")
+            
+            # Rafraîchir l'affichage de la carte
+            st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
+
 # Fonction pour afficher les paramètres en fonction du bouton cliqué
 def display_parameters(button_name):
     if button_name == "Surfaces et volumes":
@@ -602,96 +677,4 @@ def display_parameters(button_name):
         polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
         polygons_user_layers = find_polygons_in_user_layers(st.session_state["layers"])
         polygons_drawn = st.session_state["new_features"]
-        all_polygons = polygons_uploaded + polygons_user_layers + polygons_drawn
-
-        if not all_polygons:
-            st.error("Aucune polygonale disponible.")
-            return
-
-        # Conversion en GeoDataFrame
-        polygons_gdf = convert_polygons_to_gdf(all_polygons)
-
-        try:
-            # Validation des données
-            polygons_gdf_utm = validate_projection_and_extent(mns_utm_path, polygons_gdf, "EPSG:32630")
-            
-            if method == "Méthode 1 : MNS - MNT":
-                # Calcul avec MNS et MNT
-                volumes, areas = calculate_volume_and_area_for_each_polygon(
-                    mns_utm_path, 
-                    mnt_utm_path,
-                    polygons_gdf_utm
-                )
-            else:
-                # Choix de la méthode de calcul pour MNS seul
-                use_average_elevation = st.checkbox(
-                    "Utiliser la cote moyenne des élévations sur les bords de la polygonale comme référence",
-                    value=True,
-                    key="use_average_elevation"
-                )
-                reference_altitude = None
-                if not use_average_elevation:
-                    reference_altitude = st.number_input(
-                        "Entrez l'altitude de référence (en mètres) :",
-                        value=0.0,
-                        step=0.1,
-                        key="reference_altitude"
-                    )
-                
-                # Calcul avec MNS seul
-                volumes, areas = calculate_volume_and_area_with_mns_only(
-                    mns_utm_path,
-                    polygons_gdf_utm,
-                    use_average_elevation=use_average_elevation,
-                    reference_altitude=reference_altitude
-                )
-            
-            # Calcul des volumes et surfaces globaux
-            global_volume = calculate_global_volume(volumes)
-            global_area = calculate_global_area(areas)
-            st.write(f"Volume global : {global_volume:.2f} m³")
-            st.write(f"Surface globale : {global_area:.2f} m²")
-            
-            # Nettoyage des fichiers temporaires
-            os.remove(mns_utm_path)
-            if method == "Méthode 1 : MNS - MNT":
-                os.remove(mnt_utm_path)
-
-        except Exception as e:
-            st.error(f"Erreur lors du calcul : {e}")
-            # Nettoyage en cas d'erreur
-            if os.path.exists(mns_utm_path):
-                os.remove(mns_utm_path)
-            if method == "Méthode 1 : MNS - MNT" and os.path.exists(mnt_utm_path):
-                os.remove(mnt_utm_path)
-
-# Ajout des boutons pour les analyses spatiales
-st.markdown("### Analyse Spatiale")
-col1, col2, col3 = st.columns(3)
-
-# Boutons principaux
-with col1:
-    if st.button("Surfaces et volumes", key="surfaces_volumes"):
-        st.session_state['active_button'] = "Surfaces et volumes"
-    if st.button("Carte de contours", key="contours"):
-        st.session_state['active_button'] = "Carte de contours"
-
-with col2:
-    if st.button("Trouver un point", key="trouver_point"):
-        st.session_state['active_button'] = "Trouver un point"
-    if st.button("Générer un rapport", key="generer_rapport"):
-        st.session_state['active_button'] = "Générer un rapport"
-
-with col3:
-    if st.button("Télécharger la carte", key="telecharger_carte"):
-        st.session_state['active_button'] = "Télécharger la carte"
-    if st.button("Dessin automatique", key="dessin_auto"):
-        st.session_state['active_button'] = "Dessin automatique"
-
-# Création d'un espace réservé pour les paramètres
-parameters_placeholder = st.empty()
-
-# Affichage des paramètres en fonction du bouton actif
-if st.session_state['active_button']:
-    with parameters_placeholder.container():
-        display_parameters(st.session_state['active_button'])
+        all_polygons = polygons_uploaded + polygons_user_l
