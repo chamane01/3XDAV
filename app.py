@@ -352,7 +352,7 @@ def convert_drawn_features_to_gdf(features):
     gdf["properties"] = properties
     return gdf
 
-# Initialisation des couches et des entités dans la session Streamlit
+# Initialisation des états de session
 if "layers" not in st.session_state:
     st.session_state["layers"] = {}  # Couches créées par l'utilisateur
 
@@ -361,6 +361,10 @@ if "uploaded_layers" not in st.session_state:
 
 if "new_features" not in st.session_state:
     st.session_state["new_features"] = []  # Entités temporairement dessinées
+
+if "active_button" not in st.session_state:
+    st.session_state["active_button"] = None  # Bouton actif pour l'analyse spatiale
+
 
 # Titre de l'application
 st.title("Carte Topographique et Analyse Spatiale")
