@@ -14,6 +14,7 @@ from shapely.geometry import Polygon, Point, LineString, shape
 from shapely.ops import transform
 import pyproj
 from functools import partial
+from streamlit_folium import st_folium  # Import the st_folium function
 
 # Configuration du logging pour tracer les opérations
 logging.basicConfig(level=logging.INFO)
