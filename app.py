@@ -17,11 +17,9 @@ from rasterio.enums import Resampling
 from rasterio.warp import calculate_default_transform, reproject
 import matplotlib.pyplot as plt
 import os
-import uuid
+import uuid  # Pour générer des identifiants uniques
 from rasterio.mask import mask
 from shapely.geometry import LineString as ShapelyLineString
-from matplotlib.colors import Normalize
-from matplotlib import cm
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -141,41 +139,6 @@ def validate_projection_and_extent(raster_path, polygons_gdf, target_crs):
                 st.warning(f"Le polygone {idx} est en dehors de l'emprise du raster")
 
     return polygons_gdf
-    # Fonction pour générer des courbes de niveau (version simplifiée sans SciPy)
-def generate_contour_lines(tiff_path, output_path, interval=10):
-    """Génère des courbes de niveau à partir d'un fichier TIFF."""
-    with rasterio.open(tiff_path) as src:
-        dem_data = src.read(1)
-        
-        # Créer une figure matplotlib avec fond transparent
-        fig, ax = plt.subplots(figsize=(10, 10))
-        fig.patch.set_alpha(0.0)  # Fond transparent
-        ax.axis('off')
-
-        # Générer les contours
-        levels = np.arange(np.floor(dem_data.min()), np.ceil(dem_data.max()), interval)
-        contour = ax.contour(dem_data, levels=levels, colors='black', linewidths=0.5)
-
-        # Sauvegarder en PNG avec transparence
-        plt.savefig(output_path, bbox_inches='tight', pad_inches=0, transparent=True)
-        plt.close()
-
-# Fonction pour ajouter les contours à la carte
-def add_contour_overlay(map_object, contour_path, tiff_bounds):
-    """Ajoute les contours générés à la carte Folium."""
-    # Calculer les coordonnées des bords dans l'ordre [sud, ouest, nord, est]
-    bounds = [
-        [tiff_bounds.bottom, tiff_bounds.left],
-        [tiff_bounds.top, tiff_bounds.right]
-    ]
-    
-    folium.raster_layers.ImageOverlay(
-        image=contour_path,
-        bounds=bounds,
-        opacity=0.7,
-        interactive=True,
-        cross_origin=True
-    ).add_to(map_object)
 
 # Fonction pour calculer le volume et la surface pour chaque polygone (MNS - MNT)
 def calculate_volume_and_area_for_each_polygon(mns_path, mnt_path, polygons_gdf):
@@ -219,7 +182,134 @@ def calculate_volume_and_area_for_each_polygon(mns_path, mnt_path, polygons_gdf)
             st.error(f"Erreur sur le polygone {idx + 1}: {str(e)}")
     
     return volumes, areas
-    # Initialisation des couches et des entités dans la session Streamlit
+
+# Fonction pour extraire les points sur les bords d'une polygonale
+def extract_boundary_points(polygon):
+    """Extrait les points situés sur les bords d'une polygonale."""
+    boundary = polygon.boundary
+    if isinstance(boundary, ShapelyLineString):
+        return list(boundary.coords)
+    else:
+        # Si la polygonale a des trous, on prend uniquement le contour extérieur
+        return list(polygon.exterior.coords)
+
+# Fonction pour calculer la cote moyenne des élévations sur les bords de la polygonale
+def calculate_average_elevation_on_boundary(mns_path, polygon):
+    """Calcule la cote moyenne des élévations sur les bords de la polygonale."""
+    with rasterio.open(mns_path) as src:
+        # Extraire les points sur les bords de la polygonale
+        boundary_points = extract_boundary_points(polygon)
+        
+        # Convertir les points en coordonnées raster
+        boundary_coords = [src.index(x, y) for (x, y) in boundary_points]
+        
+        # Extraire les élévations sur les bords
+        elevations = [src.read(1)[int(row), int(col)] for (row, col) in boundary_coords]
+        
+        # Calculer la cote moyenne
+        average_elevation = np.mean(elevations)
+    return average_elevation
+
+# Fonction pour calculer le volume et la surface pour chaque polygone (MNS seul)
+def calculate_volume_and_area_with_mns_only(mns_path, polygons_gdf, use_average_elevation=True, reference_altitude=None):
+    """Calcule le volume et la surface pour chaque polygone en utilisant uniquement le MNS."""
+    volumes = []
+    areas = []
+    
+    # Reprojection des polygones en UTM
+    with rasterio.open(mns_path) as src:
+        polygons_gdf = polygons_gdf.to_crs(src.crs)
+    
+    for idx, polygon in polygons_gdf.iterrows():
+        try:
+            # Découpage du MNS
+            with rasterio.open(mns_path) as src:
+                mns_clipped, mns_transform = mask(src, [polygon.geometry], crop=True, nodata=np.nan)
+                mns_data = mns_clipped[0]
+                cell_area = abs(mns_transform.a * mns_transform.e)  # Surface par cellule
+
+            # Calcul de la cote de référence
+            if use_average_elevation:
+                reference_altitude = calculate_average_elevation_on_boundary(mns_path, polygon.geometry)
+            elif reference_altitude is None:
+                st.error("Veuillez fournir une altitude de référence.")
+                return [], []
+
+            # Calcul différentiel par rapport à la cote de référence
+            valid_mask = ~np.isnan(mns_data)
+            diff = np.where(valid_mask, mns_data - reference_altitude, 0)
+            
+            # Calculs finaux
+            volume = np.sum(diff) * cell_area
+            area = np.count_nonzero(valid_mask) * cell_area
+            
+            volumes.append(volume)
+            areas.append(area)
+            
+            # Récupérer le nom de la polygonale
+            polygon_name = polygon.get("properties", {}).get("name", f"Polygone {idx + 1}")
+            st.write(f"{polygon_name} - Volume: {volume:.2f} m³, Surface: {area:.2f} m², Cote de référence: {reference_altitude:.2f} m")
+
+        except Exception as e:
+            st.error(f"Erreur sur le polygone {idx + 1}: {str(e)}")
+    
+    return volumes, areas
+
+# Fonction pour calculer le volume global
+def calculate_global_volume(volumes):
+    """Calcule le volume global en additionnant les volumes individuels."""
+    return sum(volumes)
+
+# Fonction pour calculer la surface globale
+def calculate_global_area(areas):
+    """Calcule la surface globale en additionnant les surfaces individuelles."""
+    return sum(areas)
+
+# Fonction pour rechercher des polygones dans les couches téléversées
+def find_polygons_in_layers(layers):
+    """Recherche des polygones dans les couches téléversées."""
+    polygons = []
+    for layer in layers:
+        if layer["type"] == "GeoJSON":
+            geojson_data = layer["data"]
+            for feature in geojson_data["features"]:
+                if feature["geometry"]["type"] == "Polygon":
+                    polygons.append(feature)
+    return polygons
+
+# Fonction pour rechercher des polygones dans les couches créées par l'utilisateur
+def find_polygons_in_user_layers(layers):
+    """Recherche des polygones dans les couches créées par l'utilisateur."""
+    polygons = []
+    for layer_name, features in layers.items():
+        for feature in features:
+            if feature["geometry"]["type"] == "Polygon":
+                polygons.append(feature)
+    return polygons
+
+# Fonction pour convertir les polygones en GeoDataFrame
+def convert_polygons_to_gdf(polygons):
+    """Convertit une liste de polygones en GeoDataFrame."""
+    geometries = [shape(polygon["geometry"]) for polygon in polygons]
+    properties = [polygon.get("properties", {}) for polygon in polygons]
+    gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")
+    gdf["properties"] = properties
+    return gdf
+
+# Fonction pour convertir les entités dessinées en GeoDataFrame
+def convert_drawn_features_to_gdf(features):
+    """Convertit les entités dessinées en GeoDataFrame."""
+    geometries = []
+    properties = []
+    for feature in features:
+        geom = shape(feature["geometry"])
+        geometries.append(geom)
+        properties.append(feature.get("properties", {}))
+    gdf = gpd.GeoDataFrame(geometry=geometries, crs="EPSG:4326")
+    gdf["properties"] = properties
+    return gdf
+
+# Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
     st.session_state["layers"] = {}  # Couches créées par l'utilisateur
 
@@ -478,35 +568,6 @@ if output and "last_active_drawing" in output and output["last_active_drawing"]:
 if 'active_button' not in st.session_state:
     st.session_state['active_button'] = None
 
-# Fonction pour afficher les paramètres de la carte de contours
-def display_contour_parameters():
-    st.markdown("### Carte de contours")
-    
-    contour_layer = st.selectbox(
-        "Sélectionnez la couche pour générer les contours",
-        options=[layer["name"] for layer in st.session_state["uploaded_layers"] if layer["name"] in ["MNT", "MNS"]],
-        key="contour_layer_selectbox"
-    )
-    
-    if contour_layer:
-        interval = st.number_input("Intervalle entre les courbes de niveau (en mètres)", min_value=1, value=5)
-        
-        if st.button("Générer les contours"):
-            tiff_layer = next(layer for layer in st.session_state["uploaded_layers"] if layer["name"] == contour_layer)
-            
-            # Générer un nom de fichier unique
-            unique_id = str(uuid.uuid4())[:8]
-            contour_path = f"contours_{unique_id}.png"
-            
-            # Générer les contours
-            generate_contour_lines(tiff_layer["path"], contour_path, interval=interval)
-            
-            # Ajouter à la carte
-            add_contour_overlay(m, contour_path, tiff_layer["bounds"])
-            
-            # Rafraîchir l'affichage
-            st.experimental_rerun()
-
 # Fonction pour afficher les paramètres en fonction du bouton cliqué
 def display_parameters(button_name):
     if button_name == "Surfaces et volumes":
@@ -603,9 +664,6 @@ def display_parameters(button_name):
                 os.remove(mns_utm_path)
             if method == "Méthode 1 : MNS - MNT" and os.path.exists(mnt_utm_path):
                 os.remove(mnt_utm_path)
-
-    elif button_name == "Carte de contours":
-        display_contour_parameters()
 
 # Ajout des boutons pour les analyses spatiales
 st.markdown("### Analyse Spatiale")
