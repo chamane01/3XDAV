@@ -1,6 +1,7 @@
 # Module 1: Importations des bibliothèques
 import streamlit as st
 import folium
+from streamlit_folium import folium_static  # Pour afficher Folium dans Streamlit
 import rasterio
 from rasterio.warp import calculate_default_transform, reproject
 import geopandas as gpd
@@ -9,10 +10,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 import uuid
-import dask.array as da
 from fpdf import FPDF
 import os
-import dask
 
 # Module 2: Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -201,37 +200,7 @@ def main():
             folium.GeoJson(row.geometry).add_to(m)
 
     # Affichage de la carte dans Streamlit
-    folium_static(m)
-
-# Module 5: Gestion des couches et des entités
-def manage_layers():
-    if "layers" not in st.session_state:
-        st.session_state["layers"] = []
-    if "uploaded_layers" not in st.session_state:
-        st.session_state["uploaded_layers"] = []
-    if "new_features" not in st.session_state:
-        st.session_state["new_features"] = []
-
-# Module 6: Affichage de la carte
-def display_map():
-    m = folium.Map(location=[5.360, -4.008], zoom_start=8)
-    return m
-
-# Module 7: Analyse spatiale
-def spatial_analysis():
-    pass
-
-# Module 8: Optimisations et bonnes pratiques
-def optimizations():
-    pass
-
-# Module 9: Erreurs potentielles
-def handle_errors():
-    pass
-
-# Module 10: Améliorations supplémentaires
-def additional_improvements():
-    pass
+    folium_static(m)  # Utilisation de folium_static pour afficher la carte
 
 # Exécution de l'application
 if __name__ == "__main__":
