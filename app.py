@@ -14,7 +14,10 @@ from shapely.geometry import Polygon, Point, LineString, shape
 from shapely.ops import transform
 import pyproj
 from functools import partial
-from streamlit_folium import st_folium  # Import the st_folium function
+from streamlit_folium import st_folium
+import matplotlib.pyplot as plt
+from matplotlib import cm
+from fpdf import FPDF
 
 # Configuration du logging pour tracer les opérations
 logging.basicConfig(level=logging.INFO)
@@ -192,6 +195,80 @@ def clean_temp_files():
                 logger.error(f"Erreur lors de la suppression du fichier {file_path}: {e}")
         st.session_state.temp_files = []
         st.success("Tous les fichiers temporaires ont été supprimés.")
+
+# Fonction pour calculer le volume entre un MNS et un MNT
+def calculate_volume(mns_path, mnt_path, polygon):
+    """
+    Calcule le volume entre un MNS et un MNT pour un polygone donné.
+    Args:
+        mns_path (str): Chemin du fichier MNS.
+        mnt_path (str): Chemin du fichier MNT.
+        polygon (shapely.geometry.Polygon): Polygone pour lequel calculer le volume.
+    Returns:
+        float: Volume calculé.
+    """
+    try:
+        with rasterio.open(mns_path) as mns, rasterio.open(mnt_path) as mnt:
+            mns_data, _ = mask(mns, [polygon], crop=True, nodata=np.nan)
+            mnt_data, _ = mask(mnt, [polygon], crop=True, nodata=np.nan)
+            diff = mns_data - mnt_data
+            resolution = mns.res[0] * mns.res[1]  # Résolution en m²
+            volume = np.nansum(diff) * resolution
+            return volume
+    except Exception as e:
+        logger.error(f"Erreur lors du calcul du volume : {e}")
+        raise
+
+# Fonction pour générer des contours
+def generate_contours(tiff_path, output_path, interval=10):
+    """
+    Génère une carte de contours à partir d'un fichier TIFF.
+    Args:
+        tiff_path (str): Chemin du fichier TIFF.
+        output_path (str): Chemin de sortie pour l'image des contours.
+        interval (int): Intervalle entre les contours.
+    """
+    try:
+        with rasterio.open(tiff_path) as src:
+            elevation = src.read(1)
+            transform = src.transform
+            x = np.arange(0, src.width)
+            y = np.arange(0, src.height)
+            x, y = np.meshgrid(x, y)
+            x = transform[2] + x * transform[0]
+            y = transform[5] + y * transform[4]
+            fig, ax = plt.subplots()
+            contours = ax.contour(x, y, elevation, levels=np.arange(elevation.min(), elevation.max(), interval), cmap=cm.terrain)
+            ax.clabel(contours, inline=True, fontsize=8)
+            plt.savefig(output_path, dpi=300)
+            plt.close()
+            logger.info(f"Carte de contours générée : {output_path}")
+    except Exception as e:
+        logger.error(f"Erreur lors de la génération des contours : {e}")
+        raise
+
+# Fonction pour générer un rapport PDF
+def generate_report(volumes, areas, output_path):
+    """
+    Génère un rapport PDF avec les volumes et surfaces calculés.
+    Args:
+        volumes (list): Liste des volumes calculés.
+        areas (list): Liste des surfaces calculées.
+        output_path (str): Chemin de sortie pour le rapport PDF.
+    """
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", size=12)
+        pdf.cell(200, 10, txt="Rapport d'Analyse Spatiale", ln=True, align="C")
+        pdf.cell(200, 10, txt="Volumes et Surfaces Calculés", ln=True, align="C")
+        for i, (volume, area) in enumerate(zip(volumes, areas)):
+            pdf.cell(200, 10, txt=f"Polygone {i+1}: Volume = {volume:.2f} m³, Surface = {area:.2f} m²", ln=True)
+        pdf.output(output_path)
+        logger.info(f"Rapport généré : {output_path}")
+    except Exception as e:
+        logger.error(f"Erreur lors de la génération du rapport : {e}")
+        raise
 
 # Initialisation de la session pour stocker les fichiers temporaires
 if 'temp_files' not in st.session_state:
