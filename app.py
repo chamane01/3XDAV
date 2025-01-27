@@ -12,6 +12,7 @@ import uuid
 import dask.array as da
 from fpdf import FPDF
 import os
+import dask
 
 # Module 2: Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
