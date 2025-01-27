@@ -39,27 +39,31 @@ def reproject_tiff(input_path, output_path, dst_crs='EPSG:4326'):
 
 # Fonction pour calculer les volumes et surfaces
 def calculate_volume_and_area(mns_path, mnt_path, polygon):
-    with rasterio.open(mns_path) as mns:
-        mns_data = mns.read(1)
-        mns_transform = mns.transform
+    try:
+        with rasterio.open(mns_path) as mns:
+            mns_data = mns.read(1)
+            mns_transform = mns.transform
 
-    with rasterio.open(mnt_path) as mnt:
-        mnt_data = mnt.read(1)
-        mnt_transform = mnt.transform
+        with rasterio.open(mnt_path) as mnt:
+            mnt_data = mnt.read(1)
+            mnt_transform = mnt.transform
 
-    # Convertir le polygone en masque raster
-    from rasterio.features import geometry_mask
-    mask = geometry_mask([polygon], transform=mns_transform, out_shape=mns_data.shape, invert=True)
+        # Convertir le polygone en masque raster
+        from rasterio.features import geometry_mask
+        mask = geometry_mask([polygon], transform=mns_transform, out_shape=mns_data.shape, invert=True)
 
-    # Calculer la différence entre MNS et MNT
-    diff = mns_data - mnt_data
-    diff = np.where(mask, diff, 0)
+        # Calculer la différence entre MNS et MNT
+        diff = mns_data - mnt_data
+        diff = np.where(mask, diff, 0)
 
-    # Calculer le volume et la surface
-    volume = np.sum(diff) * abs(mns_transform.a * mns_transform.e)
-    area = np.sum(mask) * abs(mns_transform.a * mns_transform.e)
+        # Calculer le volume et la surface
+        volume = np.sum(diff) * abs(mns_transform.a * mns_transform.e)
+        area = np.sum(mask) * abs(mns_transform.a * mns_transform.e)
 
-    return volume, area
+        return volume, area
+    except Exception as e:
+        st.error(f"Erreur lors du calcul des volumes et surfaces : {e}")
+        return None, None
 
 # Fonction pour générer des contours
 def generate_contours(mnt_path, interval=10):
@@ -74,12 +78,12 @@ def generate_contours(mnt_path, interval=10):
 
         # Convertir les contours en géométries GeoJSON
         contour_geometries = []
-        for contour in contours.collections:
-            for path in contour.get_paths():
-                for polygon in path.to_polygons():
+        for contour_level in contours.allsegs:
+            for contour in contour_level:
+                if len(contour) > 0:
                     contour_geometries.append({
                         "type": "LineString",
-                        "coordinates": [transform * (x, y) for x, y in polygon]
+                        "coordinates": [transform * (x, y) for x, y in contour]
                     })
 
         return contour_geometries
@@ -165,10 +169,14 @@ if st.session_state['new_features']:
 if st.button("Calculer les volumes et surfaces"):
     if 'uploaded_tiff' in st.session_state and st.session_state['new_features']:
         mns_path = st.session_state['uploaded_tiff']
-        mnt_path = "path_to_mnt.tif"  # Remplacez par le chemin réel du MNT
-        polygon = shape(st.session_state['new_features'][0]['geometry'])
-        volume, area = calculate_volume_and_area(mns_path, mnt_path, polygon)
-        st.success(f"Volume: {volume:.2f} m³, Surface: {area:.2f} m²")
+        mnt_path = "path_to_mnt.tif"  # Remplacez par le chemin réel du MNT ou téléversez un fichier MNT
+        if not os.path.exists(mnt_path):
+            st.error("Veuillez téléverser un fichier MNT.")
+        else:
+            polygon = shape(st.session_state['new_features'][0]['geometry'])
+            volume, area = calculate_volume_and_area(mns_path, mnt_path, polygon)
+            if volume is not None and area is not None:
+                st.success(f"Volume: {volume:.2f} m³, Surface: {area:.2f} m²")
     else:
         st.error("Veuillez téléverser un fichier TIFF et dessiner un polygone.")
 
