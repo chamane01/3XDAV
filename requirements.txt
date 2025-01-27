@@ -24,4 +24,5 @@ pyogrio
 fiona
 plotly
 folium
+fpdf
 
