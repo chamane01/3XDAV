@@ -1,6 +1,4 @@
 # Partie 1 : Initialisation et importation des bibliothèques
-
-# Importation des bibliothèques nécessaires
 import streamlit as st
 import folium
 from folium.plugins import Draw
@@ -13,6 +11,7 @@ from PIL import Image
 import tempfile
 import uuid
 import os
+import json
 
 # Configuration de l'application Streamlit
 st.set_page_config(
@@ -28,23 +27,20 @@ if "new_features" not in st.session_state:
     st.session_state["new_features"] = []  # Entités dessinées non encore enregistrées
 if "contour_map" not in st.session_state:
     st.session_state["contour_map"] = None  # Carte des contours
-# Partie 2 : Création de la carte interactive Folium
 
+# Partie 2 : Création de la carte interactive Folium
 def create_map():
     """
     Crée une carte Folium centrée sur la Côte d'Ivoire avec des fonds de carte optionnels.
     """
-    # Coordonnées centrales pour la Côte d'Ivoire
     center_coords = [7.539989, -5.54708]  # Latitude, Longitude
 
-    # Création de la carte Folium
     folium_map = folium.Map(
         location=center_coords,
         zoom_start=7,  # Zoom initial
         tiles=None  # Désactiver le fond de carte par défaut
     )
 
-    # Ajout des fonds de carte
     folium.TileLayer(
         tiles="OpenStreetMap", 
         name="Carte topographique", 
@@ -76,25 +72,11 @@ def create_map():
         control=True
     ).add_to(folium_map)
 
-    # Ajout du contrôle de superposition
     folium.LayerControl(collapsed=False).add_to(folium_map)
 
     return folium_map
 
-
-# Génération de la carte dans l'application Streamlit
-st.title("Application de cartographie et d'analyse spatiale")
-st.sidebar.header("Options de la carte")
-
-# Affichage de la carte dans Streamlit
-st_map = create_map()
-st_data = st._folium_static(st_map, width=800, height=500)
 # Partie 3 : Téléversement et gestion des fichiers GeoJSON et TIFF
-
-import uuid
-from rasterio.warp import calculate_default_transform, reproject, Resampling
-from rasterio import open as rio_open
-
 def upload_and_process_files():
     """
     Gère le téléversement de fichiers GeoJSON et TIFF.
@@ -106,7 +88,7 @@ def upload_and_process_files():
         type=["geojson", "tiff"], 
         accept_multiple_files=True
     )
-    
+
     if uploaded_files:
         for uploaded_file in uploaded_files:
             file_type = uploaded_file.name.split('.')[-1].lower()
@@ -114,10 +96,7 @@ def upload_and_process_files():
             if file_type == "geojson":
                 # Charger le fichier GeoJSON
                 gdf = gpd.read_file(uploaded_file)
-                
-                # Déterminer une couleur en fonction du type de fichier
-                color = "orange" if "route" in uploaded_file.name.lower() else \
-                        "green" if "plantation" in uploaded_file.name.lower() else "blue"
+                color = "orange"  # Exemple de couleur
 
                 # Ajouter les entités GeoJSON sur la carte
                 for _, row in gdf.iterrows():
@@ -133,28 +112,22 @@ def upload_and_process_files():
                 st.success(f"Fichier GeoJSON {uploaded_file.name} ajouté avec succès !")
 
             elif file_type == "tiff":
-                # Génération d'un fichier temporaire avec un UUID
+                # Reprojection et ajout à la carte (fonction déjà définie)
                 temp_file = f"/tmp/{uuid.uuid4()}.tiff"
-                
                 with open(temp_file, "wb") as f:
                     f.write(uploaded_file.getbuffer())
 
-                # Reprojection en EPSG:4326
                 reprojected_file = reproject_tiff(temp_file)
-
-                # Ajouter l'image TIFF reprojetée à la carte
                 add_image_overlay(reprojected_file, uploaded_file.name)
 
                 st.session_state["tiff_layers"].append(uploaded_file.name)
                 st.success(f"Fichier TIFF {uploaded_file.name} ajouté avec succès !")
-
 
 def reproject_tiff(input_file):
     """
     Reprojette un fichier TIFF en EPSG:4326 et renvoie le chemin du fichier reprojeté.
     """
     output_file = f"/tmp/{uuid.uuid4()}_reprojected.tiff"
-    
     with rio_open(input_file) as src:
         transform, width, height = calculate_default_transform(
             src.crs, "EPSG:4326", src.width, src.height, *src.bounds
@@ -166,7 +139,7 @@ def reproject_tiff(input_file):
             "width": width,
             "height": height
         })
-        
+
         with rio_open(output_file, "w", **kwargs) as dst:
             for i in range(1, src.count + 1):
                 reproject(
@@ -180,47 +153,7 @@ def reproject_tiff(input_file):
                 )
     return output_file
 
-
-def add_image_overlay(tiff_path, name):
-    """
-    Ajoute un fichier TIFF reprojeté à la carte comme une superposition d'image.
-    """
-    with rio_open(tiff_path) as src:
-        bounds = src.bounds
-        img_array = src.read(1)
-
-        # Normalisation pour appliquer un gradient de couleurs
-        img_array = np.nan_to_num(img_array)
-        normalized_array = (img_array - np.min(img_array)) / (np.max(img_array) - np.min(img_array))
-        img = Image.fromarray(np.uint8(plt.cm.viridis(normalized_array) * 255))
-
-        # Enregistrer une image temporaire
-        img_path = f"/tmp/{uuid.uuid4()}.png"
-        img.save(img_path)
-
-        # Ajouter à la carte
-        folium.raster_layers.ImageOverlay(
-            name=name,
-            image=img_path,
-            bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
-            opacity=0.6
-        ).add_to(st_map)
-
-
-# Initialiser les couches dans la session
-if "geojson_layers" not in st.session_state:
-    st.session_state["geojson_layers"] = []
-
-if "tiff_layers" not in st.session_state:
-    st.session_state["tiff_layers"] = []
-
-# Appel de la fonction de gestion des fichiers
-upload_and_process_files()
-# Partie 4 : Ajout et gestion des entités dessinées
-
-from folium.plugins import Draw
-import json
-
+# Partie 4 : Ajout des entités dessinées
 def add_draw_tool(map_object):
     """
     Ajoute un outil de dessin à la carte pour permettre à l'utilisateur 
@@ -243,12 +176,10 @@ def handle_drawn_features():
     Gère les entités dessinées par l'utilisateur et les exporte en GeoJSON.
     """
     st.subheader("Entités dessinées")
-    
-    # Initialiser la liste des entités si elle n'existe pas
+
     if "drawn_features" not in st.session_state:
         st.session_state["drawn_features"] = []
 
-    # Bouton pour exporter les entités en GeoJSON
     if st.session_state["drawn_features"]:
         export_geojson = st.button("Exporter les entités en GeoJSON")
         if export_geojson:
@@ -264,102 +195,24 @@ def handle_drawn_features():
                 mime="application/json"
             )
 
-    # Afficher les entités dessinées
     for feature in st.session_state["drawn_features"]:
         geometry = feature["geometry"]
         st.write(f"Type : {geometry['type']}")
         st.write(f"Coordonnées : {geometry['coordinates']}")
 
-    # Ajouter une zone de texte pour simuler l'ajout des entités (Streamlit limitation)
-    drawn_geojson = st.text_area(
-        "Entrez les entités dessinées en GeoJSON (coller le texte depuis la console du navigateur)",
-        height=300
-    )
-    
-    # Si l'utilisateur entre un GeoJSON valide, l'ajouter à la session
-    if drawn_geojson:
-        try:
-            parsed_geojson = json.loads(drawn_geojson)
-            if "features" in parsed_geojson:
-                st.session_state["drawn_features"] = parsed_geojson["features"]
-                st.success("Entités ajoutées avec succès !")
-            else:
-                st.error("Le GeoJSON fourni n'est pas valide. Assurez-vous qu'il contient une clé 'features'.")
-        except json.JSONDecodeError:
-            st.error("Le texte entré n'est pas un GeoJSON valide.")
+# Génération de la carte dans Streamlit
+st.title("Application de cartographie et d'analyse spatiale")
+st.sidebar.header("Options de la carte")
 
-# Ajouter l'outil de dessin à la carte
+# Création de la carte et ajout du plugin de dessin
+st_map = create_map()
 add_draw_tool(st_map)
+st_data = st._folium_static(st_map, width=800, height=500)
 
-# Gérer les entités dessinées
+# Appel de la fonction pour gérer le téléversement des fichiers
+upload_and_process_files()
 handle_drawn_features()
 
-# Afficher la carte
-st_data = st_folium(st_map, width=700, height=500)
-import ezdxf
-from shapely.geometry import shape
-
-def geojson_to_dxf(geojson_features, filename="output.dxf"):
-    """
-    Convertit les entités GeoJSON en fichier DXF.
-    """
-    # Créer un nouveau fichier DXF
-    doc = ezdxf.new()
-    msp = doc.modelspace()  # Espace modèle du fichier DXF
-
-    # Parcourir les entités GeoJSON
-    for feature in geojson_features:
-        geometry = feature["geometry"]
-        geom_type = geometry["type"]
-        coordinates = geometry["coordinates"]
-
-        if geom_type == "Point":
-            # Ajouter un point
-            x, y = coordinates
-            msp.add_point((x, y))
-        elif geom_type == "LineString":
-            # Ajouter une ligne
-            msp.add_lwpolyline(coordinates, is_closed=False)
-        elif geom_type == "Polygon":
-            # Ajouter un polygone (fermé)
-            for ring in coordinates:
-                msp.add_lwpolyline(ring, is_closed=True)
-        else:
-            st.warning(f"Géométrie {geom_type} non prise en charge.")
-
-    # Sauvegarder le fichier DXF
-    doc.saveas(filename)
-    return filename
-
-def handle_dxf_export():
-    """
-    Gère l'export des entités dessinées en fichier DXF.
-    """
-    st.subheader("Export DXF")
-
-    # Vérifier si des entités GeoJSON sont présentes
-    if "drawn_features" in st.session_state and st.session_state["drawn_features"]:
-        # Bouton pour générer le fichier DXF
-        generate_dxf = st.button("Générer le fichier DXF")
-        if generate_dxf:
-            try:
-                # Convertir GeoJSON en DXF
-                filename = geojson_to_dxf(st.session_state["drawn_features"], "drawn_features.dxf")
-                with open(filename, "rb") as dxf_file:
-                    st.download_button(
-                        label="Télécharger le fichier DXF",
-                        data=dxf_file,
-                        file_name="drawn_features.dxf",
-                        mime="application/dxf"
-                    )
-                st.success("Fichier DXF généré avec succès !")
-            except Exception as e:
-                st.error(f"Erreur lors de la génération du fichier DXF : {e}")
-    else:
-        st.info("Aucune entité dessinée disponible pour l'export.")
-
-# Ajouter l'export DXF à l'application
-handle_dxf_export()
 import numpy as np
 import rasterio
 from shapely.geometry import Polygon
