@@ -4,7 +4,6 @@ from folium.plugins import Draw
 import geopandas as gpd
 import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
-from rasterio.plot import show
 import numpy as np
 import matplotlib.pyplot as plt
 from shapely.geometry import shape
@@ -12,6 +11,7 @@ import tempfile
 import uuid
 import os
 from PIL import Image
+from streamlit_folium import st_folium  # Correction ici
 
 # Fonction pour reprojeter un fichier TIFF en EPSG:4326
 def reproject_tiff(input_path, output_path, dst_crs='EPSG:4326'):
@@ -147,7 +147,7 @@ if 'uploaded_geojson' in st.session_state:
 Draw(export=True).add_to(m)
 
 # Affichage de la carte
-folium_static = st_folium(m, width=700, height=500)
+folium_static = st_folium(m, width=700, height=500)  # Correction ici
 
 # Gestion des entités dessinées
 if folium_static.get('last_active_drawing'):
@@ -190,11 +190,6 @@ if 'contours' in st.session_state:
 if 'uploaded_tiff' in st.session_state:
     os.remove(st.session_state['uploaded_tiff'])
     del st.session_state['uploaded_tiff']
-
-# Fonction pour afficher la carte Folium dans Streamlit
-def st_folium(m, width=700, height=500):
-    from streamlit_folium import folium_static
-    return folium_static(m, width=width, height=height)
 
 # Exécution de l'application
 if __name__ == "__main__":
