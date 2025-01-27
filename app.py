@@ -11,7 +11,7 @@ import tempfile
 import uuid
 import os
 from PIL import Image
-from streamlit_folium import st_folium  # Correction ici
+from streamlit_folium import st_folium
 
 # Fonction pour reprojeter un fichier TIFF en EPSG:4326
 def reproject_tiff(input_path, output_path, dst_crs='EPSG:4326'):
@@ -147,7 +147,7 @@ if 'uploaded_geojson' in st.session_state:
 Draw(export=True).add_to(m)
 
 # Affichage de la carte
-folium_static = st_folium(m, width=700, height=500)  # Correction ici
+folium_static = st_folium(m, width=700, height=500)
 
 # Gestion des entités dessinées
 if folium_static.get('last_active_drawing'):
@@ -190,7 +190,3 @@ if 'contours' in st.session_state:
 if 'uploaded_tiff' in st.session_state:
     os.remove(st.session_state['uploaded_tiff'])
     del st.session_state['uploaded_tiff']
-
-# Exécution de l'application
-if __name__ == "__main__":
-    st.run()
