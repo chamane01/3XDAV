@@ -17,11 +17,9 @@ from rasterio.enums import Resampling
 from rasterio.warp import calculate_default_transform, reproject
 import matplotlib.pyplot as plt
 import os
-import uuid
+import uuid  # Pour générer des identifiants uniques
 from rasterio.mask import mask
 from shapely.geometry import LineString as ShapelyLineString
-from matplotlib.colors import Normalize
-from matplotlib import cm
 
 # Dictionnaire des couleurs pour les types de fichiers GeoJSON
 geojson_colors = {
@@ -141,47 +139,6 @@ def validate_projection_and_extent(raster_path, polygons_gdf, target_crs):
                 st.warning(f"Le polygone {idx} est en dehors de l'emprise du raster")
 
     return polygons_gdf
-
-# Fonction pour générer des courbes de niveau (version simplifiée sans SciPy)
-def generate_contour_lines(tiff_path, output_path, interval=10):
-    """Génère des courbes de niveau à partir d'un fichier TIFF."""
-    with rasterio.open(tiff_path) as src:
-        dem_data = src.read(1)
-        
-        # Créer une figure matplotlib avec fond transparent
-        fig, ax = plt.subplots(figsize=(10, 10))
-        fig.patch.set_alpha(0.0)  # Fond transparent
-        ax.axis('off')
-
-        # Générer les contours
-        levels = np.arange(np.floor(dem_data.min()), np.ceil(dem_data.max()), interval)
-        contour = ax.contour(dem_data, levels=levels, colors='black', linewidths=0.5)
-
-        # Sauvegarder en PNG avec transparence
-        plt.savefig(output_path, bbox_inches='tight', pad_inches=0, transparent=True)
-        plt.close()
-
-# Fonction pour ajouter les contours à la carte
-def add_contour_overlay(map_object, contour_path, tiff_bounds):
-    """Ajoute les contours générés à la carte Folium."""
-    # Calculer les coordonnées des bords dans l'ordre [sud, ouest, nord, est]
-    bounds = [
-        [tiff_bounds.bottom, tiff_bounds.left],
-        [tiff_bounds.top, tiff_bounds.right]
-    ]
-    
-    # Ajouter l'overlay des contours
-    folium.raster_layers.ImageOverlay(
-        image=contour_path,
-        bounds=bounds,
-        opacity=0.7,
-        interactive=True,
-        cross_origin=True,
-        name="Contours"
-    ).add_to(map_object)
-    
-    # Ajouter un contrôle de couche pour activer/désactiver les contours
-    LayerControl(position="topleft", collapsed=True).add_to(map_object)
 
 # Fonction pour calculer le volume et la surface pour chaque polygone (MNS - MNT)
 def calculate_volume_and_area_for_each_polygon(mns_path, mnt_path, polygons_gdf):
@@ -352,7 +309,7 @@ def convert_drawn_features_to_gdf(features):
     gdf["properties"] = properties
     return gdf
 
-# Initialisation des états de session
+# Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
     st.session_state["layers"] = {}  # Couches créées par l'utilisateur
 
@@ -361,10 +318,6 @@ if "uploaded_layers" not in st.session_state:
 
 if "new_features" not in st.session_state:
     st.session_state["new_features"] = []  # Entités temporairement dessinées
-
-if "active_button" not in st.session_state:
-    st.session_state["active_button"] = None  # Bouton actif pour l'analyse spatiale
-
 
 # Titre de l'application
 st.title("Carte Topographique et Analyse Spatiale")
@@ -522,34 +475,98 @@ with st.sidebar:
                     st.success(f"Couche {layer['name']} supprimée.")
     else:
         st.write("Aucune couche téléversée pour le moment.")
-# Fonction pour afficher les paramètres de la carte de contours
-def display_contour_parameters():
-    st.markdown("### Carte de contours")
-    
-    contour_layer = st.selectbox(
-        "Sélectionnez la couche pour générer les contours",
-        options=[layer["name"] for layer in st.session_state["uploaded_layers"] if layer["name"] in ["MNT", "MNS"]],
-        key="contour_layer_selectbox"
-    )
-    
-    if contour_layer:
-        interval = st.number_input("Intervalle entre les courbes de niveau (en mètres)", min_value=1, value=5)
-        
-        if st.button("Générer les contours"):
-            tiff_layer = next(layer for layer in st.session_state["uploaded_layers"] if layer["name"] == contour_layer)
-            
-            # Générer un nom de fichier unique
+
+# Carte de base
+m = folium.Map(location=[7.5399, -5.5471], zoom_start=6)  # Centré sur la Côte d'Ivoire avec un zoom adapté
+
+# Ajout des fonds de carte
+folium.TileLayer(
+    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attr="Esri",
+    name="Satellite",
+).add_to(m)
+
+folium.TileLayer(
+    tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    attr="OpenTopoMap",
+    name="Topographique",
+).add_to(m)  # Carte topographique ajoutée en dernier pour être la carte par défaut
+
+# Ajout des couches créées à la carte
+for layer, features in st.session_state["layers"].items():
+    layer_group = folium.FeatureGroup(name=layer, show=True)
+    for feature in features:
+        feature_type = feature["geometry"]["type"]
+        coordinates = feature["geometry"]["coordinates"]
+        popup = feature.get("properties", {}).get("name", f"{layer} - Entité")
+
+        if feature_type == "Point":
+            lat, lon = coordinates[1], coordinates[0]
+            folium.Marker(location=[lat, lon], popup=popup).add_to(layer_group)
+        elif feature_type == "LineString":
+            folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color="blue", popup=popup).add_to(layer_group)
+        elif feature_type == "Polygon":
+            folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True, popup=popup).add_to(layer_group)
+    layer_group.add_to(m)
+
+# Ajout des couches téléversées à la carte
+for layer in st.session_state["uploaded_layers"]:
+    if layer["type"] == "TIFF":
+        if layer["name"] in ["MNT", "MNS"]:
+            # Générer un nom de fichier unique pour l'image colorée
             unique_id = str(uuid.uuid4())[:8]
-            contour_path = f"contours_{unique_id}.png"
-            
-            # Générer les contours
-            generate_contour_lines(tiff_layer["path"], contour_path, interval=interval)
-            
-            # Ajouter à la carte
-            add_contour_overlay(m, contour_path, tiff_layer["bounds"])
-            
-            # Rafraîchir l'affichage
-            st.experimental_rerun()
+            temp_png_path = f"{layer['name'].lower()}_colored_{unique_id}.png"
+            apply_color_gradient(layer["path"], temp_png_path)
+            add_image_overlay(m, temp_png_path, layer["bounds"], layer["name"])
+            os.remove(temp_png_path)  # Supprimer le fichier PNG temporaire
+        else:
+            add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
+        
+        # Ajuster la vue de la carte pour inclure l'image TIFF
+        bounds = [[layer["bounds"].bottom, layer["bounds"].left], [layer["bounds"].top, layer["bounds"].right]]
+        m.fit_bounds(bounds)
+    elif layer["type"] == "GeoJSON":
+        color = geojson_colors.get(layer["name"], "blue")
+        folium.GeoJson(
+            layer["data"],
+            name=layer["name"],
+            style_function=lambda x, color=color: {
+                "color": color,
+                "weight": 4,
+                "opacity": 0.7
+            }
+        ).add_to(m)
+
+# Gestionnaire de dessin
+draw = Draw(
+    draw_options={
+        "polyline": True,
+        "polygon": True,
+        "circle": False,
+        "rectangle": True,
+        "marker": True,
+        "circlemarker": False,
+    },
+    edit_options={"edit": True, "remove": True},
+)
+draw.add_to(m)
+
+# Ajout du contrôle des couches pour basculer entre les fonds de carte
+LayerControl(position="topleft", collapsed=True).add_to(m)
+
+# Affichage interactif de la carte
+output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
+
+# Gestion des nouveaux dessins
+if output and "last_active_drawing" in output and output["last_active_drawing"]:
+    new_feature = output["last_active_drawing"]
+    if new_feature not in st.session_state["new_features"]:
+        st.session_state["new_features"].append(new_feature)
+        st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
+
+# Initialisation de l'état de session pour le bouton actif
+if 'active_button' not in st.session_state:
+    st.session_state['active_button'] = None
 
 # Fonction pour afficher les paramètres en fonction du bouton cliqué
 def display_parameters(button_name):
@@ -647,9 +664,6 @@ def display_parameters(button_name):
                 os.remove(mns_utm_path)
             if method == "Méthode 1 : MNS - MNT" and os.path.exists(mnt_utm_path):
                 os.remove(mnt_utm_path)
-
-    elif button_name == "Carte de contours":
-        display_contour_parameters()
 
 # Ajout des boutons pour les analyses spatiales
 st.markdown("### Analyse Spatiale")
