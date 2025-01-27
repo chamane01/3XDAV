@@ -352,11 +352,7 @@ def convert_drawn_features_to_gdf(features):
     gdf["properties"] = properties
     return gdf
 
-
-# Affichage des paramètres en fonction du bouton actif
-if st.session_state.get('active_button'):  # Utilisation de .get() pour éviter KeyError
-    with parameters_placeholder.container():
-        display_parameters(st.session_state['active_button'])# Initialisation des états de session
+# Initialisation des couches et des entités dans la session Streamlit
 if "layers" not in st.session_state:
     st.session_state["layers"] = {}  # Couches créées par l'utilisateur
 
@@ -365,9 +361,6 @@ if "uploaded_layers" not in st.session_state:
 
 if "new_features" not in st.session_state:
     st.session_state["new_features"] = []  # Entités temporairement dessinées
-
-if "active_button" not in st.session_state:
-    st.session_state["active_button"] = None  # Bouton actif pour l'analyse spatiale
 
 # Titre de l'application
 st.title("Carte Topographique et Analyse Spatiale")
@@ -378,12 +371,9 @@ Créez des entités géographiques (points, lignes, polygones) en les dessinant 
 Vous pouvez également téléverser des fichiers TIFF ou GeoJSON pour les superposer à la carte.
 """)
 
-# ... (le reste du code reste inchangé jusqu'à la fin)
-
-# Affichage des paramètres en fonction du bouton actif
-if st.session_state.get('active_button'):  # Utilisation de .get() pour éviter KeyError
-    with parameters_placeholder.container():
-        display_parameters(st.session_state['active_button'])
+# Sidebar pour la gestion des couches
+with st.sidebar:
+    st.header("Gestion des Couches")
 
     # Section 1: Ajout d'une nouvelle couche
     st.markdown("### 1- Ajouter une nouvelle couche")
