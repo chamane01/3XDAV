@@ -518,99 +518,6 @@ with st.sidebar:
                     st.success(f"Couche {layer['name']} supprimée.")
     else:
         st.write("Aucune couche téléversée pour le moment.")
-
-# Carte de base
-m = folium.Map(location=[7.5399, -5.5471], zoom_start=6)  # Centré sur la Côte d'Ivoire avec un zoom adapté
-
-# Ajout des fonds de carte
-folium.TileLayer(
-    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attr="Esri",
-    name="Satellite",
-).add_to(m)
-
-folium.TileLayer(
-    tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-    attr="OpenTopoMap",
-    name="Topographique",
-).add_to(m)  # Carte topographique ajoutée en dernier pour être la carte par défaut
-
-# Ajout des couches créées à la carte
-for layer, features in st.session_state["layers"].items():
-    layer_group = folium.FeatureGroup(name=layer, show=True)
-    for feature in features:
-        feature_type = feature["geometry"]["type"]
-        coordinates = feature["geometry"]["coordinates"]
-        popup = feature.get("properties", {}).get("name", f"{layer} - Entité")
-
-        if feature_type == "Point":
-            lat, lon = coordinates[1], coordinates[0]
-            folium.Marker(location=[lat, lon], popup=popup).add_to(layer_group)
-        elif feature_type == "LineString":
-            folium.PolyLine(locations=[(lat, lon) for lon, lat in coordinates], color="blue", popup=popup).add_to(layer_group)
-        elif feature_type == "Polygon":
-            folium.Polygon(locations=[(lat, lon) for lon, lat in coordinates[0]], color="green", fill=True, popup=popup).add_to(layer_group)
-    layer_group.add_to(m)
-
-# Ajout des couches téléversées à la carte
-for layer in st.session_state["uploaded_layers"]:
-    if layer["type"] == "TIFF":
-        if layer["name"] in ["MNT", "MNS"]:
-            # Générer un nom de fichier unique pour l'image colorée
-            unique_id = str(uuid.uuid4())[:8]
-            temp_png_path = f"{layer['name'].lower()}_colored_{unique_id}.png"
-            apply_color_gradient(layer["path"], temp_png_path)
-            add_image_overlay(m, temp_png_path, layer["bounds"], layer["name"])
-            os.remove(temp_png_path)  # Supprimer le fichier PNG temporaire
-        else:
-            add_image_overlay(m, layer["path"], layer["bounds"], layer["name"])
-        
-        # Ajuster la vue de la carte pour inclure l'image TIFF
-        bounds = [[layer["bounds"].bottom, layer["bounds"].left], [layer["bounds"].top, layer["bounds"].right]]
-        m.fit_bounds(bounds)
-    elif layer["type"] == "GeoJSON":
-        color = geojson_colors.get(layer["name"], "blue")
-        folium.GeoJson(
-            layer["data"],
-            name=layer["name"],
-            style_function=lambda x, color=color: {
-                "color": color,
-                "weight": 4,
-                "opacity": 0.7
-            }
-        ).add_to(m)
-
-# Gestionnaire de dessin
-draw = Draw(
-    draw_options={
-        "polyline": True,
-        "polygon": True,
-        "circle": False,
-        "rectangle": True,
-        "marker": True,
-        "circlemarker": False,
-    },
-    edit_options={"edit": True, "remove": True},
-)
-draw.add_to(m)
-
-# Ajout du contrôle des couches pour basculer entre les fonds de carte
-LayerControl(position="topleft", collapsed=True).add_to(m)
-
-# Affichage interactif de la carte
-output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
-
-# Gestion des nouveaux dessins
-if output and "last_active_drawing" in output and output["last_active_drawing"]:
-    new_feature = output["last_active_drawing"]
-    if new_feature not in st.session_state["new_features"]:
-        st.session_state["new_features"].append(new_feature)
-        st.info("Nouvelle entité ajoutée temporairement. Cliquez sur 'Enregistrer les entités' pour les ajouter à la couche.")
-
-# Initialisation de l'état de session pour le bouton actif
-if 'active_button' not in st.session_state:
-    st.session_state['active_button'] = None
-
 # Fonction pour afficher les paramètres de la carte de contours
 def display_contour_parameters():
     st.markdown("### Carte de contours")
@@ -624,7 +531,7 @@ def display_contour_parameters():
     if contour_layer:
         interval = st.number_input("Intervalle entre les courbes de niveau (en mètres)", min_value=1, value=5)
         
-        if st.button("Générer les contours", key="generate_contours_button"):
+        if st.button("Générer les contours"):
             tiff_layer = next(layer for layer in st.session_state["uploaded_layers"] if layer["name"] == contour_layer)
             
             # Générer un nom de fichier unique
@@ -637,11 +544,8 @@ def display_contour_parameters():
             # Ajouter à la carte
             add_contour_overlay(m, contour_path, tiff_layer["bounds"])
             
-            # Afficher un message de succès
-            st.success("Les contours ont été générés et ajoutés à la carte.")
-            
-            # Rafraîchir l'affichage de la carte
-            st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
+            # Rafraîchir l'affichage
+            st.experimental_rerun()
 
 # Fonction pour afficher les paramètres en fonction du bouton cliqué
 def display_parameters(button_name):
@@ -677,4 +581,99 @@ def display_parameters(button_name):
         polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
         polygons_user_layers = find_polygons_in_user_layers(st.session_state["layers"])
         polygons_drawn = st.session_state["new_features"]
-        all_polygons = polygons_uploaded + polygons_user_l
+        all_polygons = polygons_uploaded + polygons_user_layers + polygons_drawn
+
+        if not all_polygons:
+            st.error("Aucune polygonale disponible.")
+            return
+
+        # Conversion en GeoDataFrame
+        polygons_gdf = convert_polygons_to_gdf(all_polygons)
+
+        try:
+            # Validation des données
+            polygons_gdf_utm = validate_projection_and_extent(mns_utm_path, polygons_gdf, "EPSG:32630")
+            
+            if method == "Méthode 1 : MNS - MNT":
+                # Calcul avec MNS et MNT
+                volumes, areas = calculate_volume_and_area_for_each_polygon(
+                    mns_utm_path, 
+                    mnt_utm_path,
+                    polygons_gdf_utm
+                )
+            else:
+                # Choix de la méthode de calcul pour MNS seul
+                use_average_elevation = st.checkbox(
+                    "Utiliser la cote moyenne des élévations sur les bords de la polygonale comme référence",
+                    value=True,
+                    key="use_average_elevation"
+                )
+                reference_altitude = None
+                if not use_average_elevation:
+                    reference_altitude = st.number_input(
+                        "Entrez l'altitude de référence (en mètres) :",
+                        value=0.0,
+                        step=0.1,
+                        key="reference_altitude"
+                    )
+                
+                # Calcul avec MNS seul
+                volumes, areas = calculate_volume_and_area_with_mns_only(
+                    mns_utm_path,
+                    polygons_gdf_utm,
+                    use_average_elevation=use_average_elevation,
+                    reference_altitude=reference_altitude
+                )
+            
+            # Calcul des volumes et surfaces globaux
+            global_volume = calculate_global_volume(volumes)
+            global_area = calculate_global_area(areas)
+            st.write(f"Volume global : {global_volume:.2f} m³")
+            st.write(f"Surface globale : {global_area:.2f} m²")
+            
+            # Nettoyage des fichiers temporaires
+            os.remove(mns_utm_path)
+            if method == "Méthode 1 : MNS - MNT":
+                os.remove(mnt_utm_path)
+
+        except Exception as e:
+            st.error(f"Erreur lors du calcul : {e}")
+            # Nettoyage en cas d'erreur
+            if os.path.exists(mns_utm_path):
+                os.remove(mns_utm_path)
+            if method == "Méthode 1 : MNS - MNT" and os.path.exists(mnt_utm_path):
+                os.remove(mnt_utm_path)
+
+    elif button_name == "Carte de contours":
+        display_contour_parameters()
+
+# Ajout des boutons pour les analyses spatiales
+st.markdown("### Analyse Spatiale")
+col1, col2, col3 = st.columns(3)
+
+# Boutons principaux
+with col1:
+    if st.button("Surfaces et volumes", key="surfaces_volumes"):
+        st.session_state['active_button'] = "Surfaces et volumes"
+    if st.button("Carte de contours", key="contours"):
+        st.session_state['active_button'] = "Carte de contours"
+
+with col2:
+    if st.button("Trouver un point", key="trouver_point"):
+        st.session_state['active_button'] = "Trouver un point"
+    if st.button("Générer un rapport", key="generer_rapport"):
+        st.session_state['active_button'] = "Générer un rapport"
+
+with col3:
+    if st.button("Télécharger la carte", key="telecharger_carte"):
+        st.session_state['active_button'] = "Télécharger la carte"
+    if st.button("Dessin automatique", key="dessin_auto"):
+        st.session_state['active_button'] = "Dessin automatique"
+
+# Création d'un espace réservé pour les paramètres
+parameters_placeholder = st.empty()
+
+# Affichage des paramètres en fonction du bouton actif
+if st.session_state['active_button']:
+    with parameters_placeholder.container():
+        display_parameters(st.session_state['active_button'])
