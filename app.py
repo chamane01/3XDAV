@@ -1,186 +1,695 @@
+# Partie 1 : Initialisation et importation des bibliothèques
+
+# Importation des bibliothèques nécessaires
 import streamlit as st
-from streamlit_folium import st_folium
 import folium
-from folium.plugins import Draw, MeasureControl
-from folium import LayerControl
+from folium.plugins import Draw
 import rasterio
-from rasterio.plot import reshape_as_image
+import geopandas as gpd
+from shapely.geometry import shape, Polygon
 import numpy as np
 import matplotlib.pyplot as plt
-import os
+from PIL import Image
+import tempfile
 import uuid
-from rasterio.mask import mask
-from shapely.geometry import shape
-import geopandas as gpd
-from shapely.geometry import LineString
-from skimage import measure
+import os
 
-# Fonction pour reprojeter un fichier TIFF avec un nom unique
-def reproject_tiff(input_tiff, target_crs):
-    """Reproject a TIFF file to a target CRS."""
-    with rasterio.open(input_tiff) as src:
-        transform, width, height = rasterio.warp.calculate_default_transform(
-            src.crs, target_crs, src.width, src.height, *src.bounds
+# Configuration de l'application Streamlit
+st.set_page_config(
+    page_title="Application de cartographie et d'analyse spatiale",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# Initialisation de l'état de la session
+if "uploaded_layers" not in st.session_state:
+    st.session_state["uploaded_layers"] = []  # Stockage des couches téléversées
+if "new_features" not in st.session_state:
+    st.session_state["new_features"] = []  # Entités dessinées non encore enregistrées
+if "contour_map" not in st.session_state:
+    st.session_state["contour_map"] = None  # Carte des contours
+# Partie 2 : Création de la carte interactive Folium
+
+def create_map():
+    """
+    Crée une carte Folium centrée sur la Côte d'Ivoire avec des fonds de carte optionnels.
+    """
+    # Coordonnées centrales pour la Côte d'Ivoire
+    center_coords = [7.539989, -5.54708]  # Latitude, Longitude
+
+    # Création de la carte Folium
+    folium_map = folium.Map(
+        location=center_coords,
+        zoom_start=7,  # Zoom initial
+        tiles=None  # Désactiver le fond de carte par défaut
+    )
+
+    # Ajout des fonds de carte
+    folium.TileLayer(
+        tiles="OpenStreetMap", 
+        name="Carte topographique", 
+        control=True
+    ).add_to(folium_map)
+
+    folium.TileLayer(
+        tiles="Stamen Terrain",
+        name="Carte terrain",
+        control=True
+    ).add_to(folium_map)
+
+    folium.TileLayer(
+        tiles="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
+        name="Carte Humanitaire",
+        attr="Humanitarian OSM",
+        control=True
+    ).add_to(folium_map)
+
+    folium.TileLayer(
+        tiles="CartoDB positron",
+        name="Carte lumineuse",
+        control=True
+    ).add_to(folium_map)
+
+    folium.TileLayer(
+        tiles="CartoDB dark_matter",
+        name="Carte sombre",
+        control=True
+    ).add_to(folium_map)
+
+    # Ajout du contrôle de superposition
+    folium.LayerControl(collapsed=False).add_to(folium_map)
+
+    return folium_map
+
+
+# Génération de la carte dans l'application Streamlit
+st.title("Application de cartographie et d'analyse spatiale")
+st.sidebar.header("Options de la carte")
+
+# Affichage de la carte dans Streamlit
+st_map = create_map()
+st_data = st._folium_static(st_map, width=800, height=500)
+# Partie 3 : Téléversement et gestion des fichiers GeoJSON et TIFF
+
+import uuid
+from rasterio.warp import calculate_default_transform, reproject, Resampling
+from rasterio import open as rio_open
+
+def upload_and_process_files():
+    """
+    Gère le téléversement de fichiers GeoJSON et TIFF.
+    Les fichiers GeoJSON sont affichés avec des couleurs spécifiques.
+    Les fichiers TIFF sont reprojetés et affichés sur la carte.
+    """
+    uploaded_files = st.sidebar.file_uploader(
+        "Téléversez vos fichiers (GeoJSON, TIFF)", 
+        type=["geojson", "tiff"], 
+        accept_multiple_files=True
+    )
+    
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            file_type = uploaded_file.name.split('.')[-1].lower()
+
+            if file_type == "geojson":
+                # Charger le fichier GeoJSON
+                gdf = gpd.read_file(uploaded_file)
+                
+                # Déterminer une couleur en fonction du type de fichier
+                color = "orange" if "route" in uploaded_file.name.lower() else \
+                        "green" if "plantation" in uploaded_file.name.lower() else "blue"
+
+                # Ajouter les entités GeoJSON sur la carte
+                for _, row in gdf.iterrows():
+                    folium.GeoJson(
+                        row.geometry, 
+                        style_function=lambda x, color=color: {
+                            "color": color, 
+                            "weight": 2
+                        }
+                    ).add_to(st_map)
+
+                st.session_state["geojson_layers"].append(uploaded_file.name)
+                st.success(f"Fichier GeoJSON {uploaded_file.name} ajouté avec succès !")
+
+            elif file_type == "tiff":
+                # Génération d'un fichier temporaire avec un UUID
+                temp_file = f"/tmp/{uuid.uuid4()}.tiff"
+                
+                with open(temp_file, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+
+                # Reprojection en EPSG:4326
+                reprojected_file = reproject_tiff(temp_file)
+
+                # Ajouter l'image TIFF reprojetée à la carte
+                add_image_overlay(reprojected_file, uploaded_file.name)
+
+                st.session_state["tiff_layers"].append(uploaded_file.name)
+                st.success(f"Fichier TIFF {uploaded_file.name} ajouté avec succès !")
+
+
+def reproject_tiff(input_file):
+    """
+    Reprojette un fichier TIFF en EPSG:4326 et renvoie le chemin du fichier reprojeté.
+    """
+    output_file = f"/tmp/{uuid.uuid4()}_reprojected.tiff"
+    
+    with rio_open(input_file) as src:
+        transform, width, height = calculate_default_transform(
+            src.crs, "EPSG:4326", src.width, src.height, *src.bounds
         )
         kwargs = src.meta.copy()
         kwargs.update({
-            "crs": target_crs,
+            "crs": "EPSG:4326",
             "transform": transform,
             "width": width,
-            "height": height,
+            "height": height
         })
-
-        # Générer un nom de fichier unique
-        unique_id = str(uuid.uuid4())[:8]  # Utilisation des 8 premiers caractères d'un UUID
-        reprojected_tiff = f"reprojected_{unique_id}.tiff"
-        with rasterio.open(reprojected_tiff, "w", **kwargs) as dst:
+        
+        with rio_open(output_file, "w", **kwargs) as dst:
             for i in range(1, src.count + 1):
-                rasterio.warp.reproject(
+                reproject(
                     source=rasterio.band(src, i),
                     destination=rasterio.band(dst, i),
                     src_transform=src.transform,
                     src_crs=src.crs,
                     dst_transform=transform,
-                    dst_crs=target_crs,
-                    resampling=rasterio.warp.Resampling.nearest,
+                    dst_crs="EPSG:4326",
+                    resampling=Resampling.nearest
                 )
-    return reprojected_tiff
+    return output_file
 
-# Fonction pour générer les contours à partir d'un fichier TIFF
-def generate_contours(tiff_path, interval=10):
-    """Generate contours from a TIFF file."""
-    with rasterio.open(tiff_path) as src:
-        data = src.read(1)
-        transform = src.transform
 
-        # Générer les contours
-        contours = measure.find_contours(data, level=interval)
+def add_image_overlay(tiff_path, name):
+    """
+    Ajoute un fichier TIFF reprojeté à la carte comme une superposition d'image.
+    """
+    with rio_open(tiff_path) as src:
+        bounds = src.bounds
+        img_array = src.read(1)
 
-        # Convertir les contours en polylignes
-        contour_lines = []
-        for contour in contours:
-            coords = []
-            for row, col in contour:
-                x, y = rasterio.transform.xy(transform, row, col)
-                coords.append((y, x))  # Folium utilise (lat, lon)
-            contour_lines.append(LineString(coords))
+        # Normalisation pour appliquer un gradient de couleurs
+        img_array = np.nan_to_num(img_array)
+        normalized_array = (img_array - np.min(img_array)) / (np.max(img_array) - np.min(img_array))
+        img = Image.fromarray(np.uint8(plt.cm.viridis(normalized_array) * 255))
 
-        return contour_lines
+        # Enregistrer une image temporaire
+        img_path = f"/tmp/{uuid.uuid4()}.png"
+        img.save(img_path)
 
-# Initialisation des couches dans la session Streamlit
-if "uploaded_layers" not in st.session_state:
-    st.session_state["uploaded_layers"] = []  # Couches téléversées (TIFF et GeoJSON)
+        # Ajouter à la carte
+        folium.raster_layers.ImageOverlay(
+            name=name,
+            image=img_path,
+            bounds=[[bounds.bottom, bounds.left], [bounds.top, bounds.right]],
+            opacity=0.6
+        ).add_to(st_map)
 
-# Titre de l'application
-st.title("Carte de Contours")
 
-# Description
-st.markdown("""
-Générez des courbes de niveau à partir d'un fichier TIFF (MNT ou MNS) et affichez-les sur la carte.
-""")
+# Initialiser les couches dans la session
+if "geojson_layers" not in st.session_state:
+    st.session_state["geojson_layers"] = []
 
-# Sidebar pour la gestion des couches
-with st.sidebar:
-    st.header("Gestion des Couches")
+if "tiff_layers" not in st.session_state:
+    st.session_state["tiff_layers"] = []
 
-    # Section 1: Téléversement de fichiers
-    st.markdown("### Téléverser un fichier TIFF")
-    uploaded_tiff = st.file_uploader("Téléverser un fichier TIFF (MNT ou MNS)", type=["tif", "tiff"])
+# Appel de la fonction de gestion des fichiers
+upload_and_process_files()
+# Partie 4 : Ajout et gestion des entités dessinées
 
-    if uploaded_tiff:
-        # Générer un nom de fichier unique pour le fichier téléversé
-        unique_id = str(uuid.uuid4())[:8]
-        tiff_path = f"uploaded_{unique_id}.tiff"
-        with open(tiff_path, "wb") as f:
-            f.write(uploaded_tiff.read())
+from folium.plugins import Draw
+import json
 
-        st.write(f"Reprojection du fichier TIFF...")
+def add_draw_tool(map_object):
+    """
+    Ajoute un outil de dessin à la carte pour permettre à l'utilisateur 
+    de dessiner des points, lignes et polygones.
+    """
+    draw = Draw(
+        draw_options={
+            "polyline": True,
+            "polygon": True,
+            "circle": False,
+            "rectangle": True,
+            "marker": True,
+        },
+        edit_options={"edit": True, "remove": True}
+    )
+    draw.add_to(map_object)
+
+def handle_drawn_features():
+    """
+    Gère les entités dessinées par l'utilisateur et les exporte en GeoJSON.
+    """
+    st.subheader("Entités dessinées")
+    
+    # Initialiser la liste des entités si elle n'existe pas
+    if "drawn_features" not in st.session_state:
+        st.session_state["drawn_features"] = []
+
+    # Bouton pour exporter les entités en GeoJSON
+    if st.session_state["drawn_features"]:
+        export_geojson = st.button("Exporter les entités en GeoJSON")
+        if export_geojson:
+            geojson_data = {
+                "type": "FeatureCollection",
+                "features": st.session_state["drawn_features"]
+            }
+            geojson_file = json.dumps(geojson_data, indent=2)
+            st.download_button(
+                label="Télécharger le fichier GeoJSON",
+                data=geojson_file,
+                file_name="drawn_features.geojson",
+                mime="application/json"
+            )
+
+    # Afficher les entités dessinées
+    for feature in st.session_state["drawn_features"]:
+        geometry = feature["geometry"]
+        st.write(f"Type : {geometry['type']}")
+        st.write(f"Coordonnées : {geometry['coordinates']}")
+
+    # Ajouter une zone de texte pour simuler l'ajout des entités (Streamlit limitation)
+    drawn_geojson = st.text_area(
+        "Entrez les entités dessinées en GeoJSON (coller le texte depuis la console du navigateur)",
+        height=300
+    )
+    
+    # Si l'utilisateur entre un GeoJSON valide, l'ajouter à la session
+    if drawn_geojson:
         try:
-            reprojected_tiff = reproject_tiff(tiff_path, "EPSG:4326")
-            with rasterio.open(reprojected_tiff) as src:
-                bounds = src.bounds
-                # Vérifier si la couche existe déjà
-                if not any(layer["name"] == "MNT/MNS" and layer["type"] == "TIFF" for layer in st.session_state["uploaded_layers"]):
-                    st.session_state["uploaded_layers"].append({"type": "TIFF", "name": "MNT/MNS", "path": reprojected_tiff, "bounds": bounds})
-                    st.success(f"Couche MNT/MNS ajoutée à la liste des couches.")
-                else:
-                    st.warning(f"La couche MNT/MNS existe déjà.")
-        except Exception as e:
-            st.error(f"Erreur lors de la reprojection : {e}")
-        finally:
-            # Supprimer le fichier temporaire après utilisation
-            os.remove(tiff_path)
+            parsed_geojson = json.loads(drawn_geojson)
+            if "features" in parsed_geojson:
+                st.session_state["drawn_features"] = parsed_geojson["features"]
+                st.success("Entités ajoutées avec succès !")
+            else:
+                st.error("Le GeoJSON fourni n'est pas valide. Assurez-vous qu'il contient une clé 'features'.")
+        except json.JSONDecodeError:
+            st.error("Le texte entré n'est pas un GeoJSON valide.")
 
-    # Liste des couches téléversées
-    st.markdown("### Liste des couches téléversées")
-    if st.session_state["uploaded_layers"]:
-        for i, layer in enumerate(st.session_state["uploaded_layers"]):
-            col1, col2 = st.columns([4, 1])
-            with col1:
-                st.write(f"{i + 1}. {layer['name']} ({layer['type']})")
-            with col2:
-                if st.button("🗑️", key=f"delete_{i}_{layer['name']}", help="Supprimer cette couche", type="secondary"):
-                    st.session_state["uploaded_layers"].pop(i)
-                    st.success(f"Couche {layer['name']} supprimée.")
+# Ajouter l'outil de dessin à la carte
+add_draw_tool(st_map)
+
+# Gérer les entités dessinées
+handle_drawn_features()
+
+# Afficher la carte
+st_data = st_folium(st_map, width=700, height=500)
+import ezdxf
+from shapely.geometry import shape
+
+def geojson_to_dxf(geojson_features, filename="output.dxf"):
+    """
+    Convertit les entités GeoJSON en fichier DXF.
+    """
+    # Créer un nouveau fichier DXF
+    doc = ezdxf.new()
+    msp = doc.modelspace()  # Espace modèle du fichier DXF
+
+    # Parcourir les entités GeoJSON
+    for feature in geojson_features:
+        geometry = feature["geometry"]
+        geom_type = geometry["type"]
+        coordinates = geometry["coordinates"]
+
+        if geom_type == "Point":
+            # Ajouter un point
+            x, y = coordinates
+            msp.add_point((x, y))
+        elif geom_type == "LineString":
+            # Ajouter une ligne
+            msp.add_lwpolyline(coordinates, is_closed=False)
+        elif geom_type == "Polygon":
+            # Ajouter un polygone (fermé)
+            for ring in coordinates:
+                msp.add_lwpolyline(ring, is_closed=True)
+        else:
+            st.warning(f"Géométrie {geom_type} non prise en charge.")
+
+    # Sauvegarder le fichier DXF
+    doc.saveas(filename)
+    return filename
+
+def handle_dxf_export():
+    """
+    Gère l'export des entités dessinées en fichier DXF.
+    """
+    st.subheader("Export DXF")
+
+    # Vérifier si des entités GeoJSON sont présentes
+    if "drawn_features" in st.session_state and st.session_state["drawn_features"]:
+        # Bouton pour générer le fichier DXF
+        generate_dxf = st.button("Générer le fichier DXF")
+        if generate_dxf:
+            try:
+                # Convertir GeoJSON en DXF
+                filename = geojson_to_dxf(st.session_state["drawn_features"], "drawn_features.dxf")
+                with open(filename, "rb") as dxf_file:
+                    st.download_button(
+                        label="Télécharger le fichier DXF",
+                        data=dxf_file,
+                        file_name="drawn_features.dxf",
+                        mime="application/dxf"
+                    )
+                st.success("Fichier DXF généré avec succès !")
+            except Exception as e:
+                st.error(f"Erreur lors de la génération du fichier DXF : {e}")
     else:
-        st.write("Aucune couche téléversée pour le moment.")
+        st.info("Aucune entité dessinée disponible pour l'export.")
 
-# Carte de base
-m = folium.Map(location=[7.5399, -5.5471], zoom_start=6)  # Centré sur la Côte d'Ivoire avec un zoom adapté
+# Ajouter l'export DXF à l'application
+handle_dxf_export()
+import numpy as np
+import rasterio
+from shapely.geometry import Polygon
+from rasterio.mask import mask
 
-# Ajout des fonds de carte
-folium.TileLayer(
-    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attr="Esri",
-    name="Satellite",
-).add_to(m)
+def calculate_volume_and_area(mnt_path, mns_path, polygons, method=1, altitude_ref=None):
+    """
+    Calcule les volumes et surfaces pour des polygones donnés.
+    
+    Args:
+        mnt_path (str): Chemin du fichier MNT.
+        mns_path (str): Chemin du fichier MNS.
+        polygons (list): Liste de polygones (format GeoJSON).
+        method (int): Méthode de calcul (1 ou 2).
+        altitude_ref (float): Altitude de référence pour la méthode 2.
+    
+    Returns:
+        dict: Dictionnaire contenant les résultats des analyses.
+    """
+    results = []
 
-folium.TileLayer(
-    tiles="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-    attr="OpenTopoMap",
-    name="Topographique",
-).add_to(m)  # Carte topographique ajoutée en dernier pour être la carte par défaut
+    # Charger les MNT et MNS
+    with rasterio.open(mnt_path) as mnt, rasterio.open(mns_path) as mns:
+        for polygon in polygons:
+            # Convertir le polygone en masque
+            geom = [polygon]
+            mnt_masked, mnt_transform = mask(mnt, geom, crop=True)
+            mns_masked, mns_transform = mask(mns, geom, crop=True)
 
-# Ajout des couches téléversées à la carte
-for layer in st.session_state["uploaded_layers"]:
-    if layer["type"] == "TIFF":
-        bounds = [[layer["bounds"].bottom, layer["bounds"].left], [layer["bounds"].top, layer["bounds"].right]]
-        m.fit_bounds(bounds)
+            # Extraire les données valides
+            mnt_data = mnt_masked[mnt_masked != mnt.nodata]
+            mns_data = mns_masked[mns_masked != mns.nodata]
 
-# Gestionnaire de dessin
-draw = Draw(
-    draw_options={
-        "polyline": True,
-        "polygon": True,
-        "circle": False,
-        "rectangle": True,
-        "marker": True,
-        "circlemarker": False,
-    },
-    edit_options={"edit": True, "remove": True},
-)
-draw.add_to(m)
+            if method == 1:
+                # Différence MNS - MNT
+                volume = np.sum(mns_data - mnt_data)
+            elif method == 2 and altitude_ref is not None:
+                # Différence MNS - altitude de référence
+                volume = np.sum(mns_data - altitude_ref)
+            else:
+                volume = 0
 
-# Ajout du contrôle des couches pour basculer entre les fonds de carte
-LayerControl(position="topleft", collapsed=True).add_to(m)
+            # Surface (nombre de pixels * surface par pixel)
+            pixel_area = mnt.res[0] * mnt.res[1]
+            surface = len(mnt_data) * pixel_area
 
-# Affichage interactif de la carte
-output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
+            # Résultats pour le polygone
+            results.append({
+                "polygon": polygon,
+                "volume": volume,
+                "surface": surface
+            })
 
-# Bouton pour générer les contours
-if st.button("Générer la carte de contours"):
-    tiff_layer = next((layer for layer in st.session_state["uploaded_layers"] if layer["name"] == "MNT/MNS"), None)
-    if tiff_layer:
-        contours = generate_contours(tiff_layer["path"], interval=10)
-        contour_group = folium.FeatureGroup(name="Contours", show=True)
-        for contour in contours:
-            folium.PolyLine(
-                locations=[(lat, lon) for lon, lat in contour.coords],
-                color="blue",
-                weight=1,
-                opacity=0.7
-            ).add_to(contour_group)
-        contour_group.add_to(m)
-        st.success("Les contours ont été générés et ajoutés à la carte.")
+    return results
+def handle_spatial_analysis():
+    """
+    Gère les analyses spatiales (volumes et surfaces) depuis l'interface utilisateur.
+    """
+    st.subheader("Analyse spatiale : Volumes et Surfaces")
+
+    # Sélection des fichiers MNT et MNS
+    mnt_file = st.file_uploader("Téléverser le MNT (fichier TIFF)", type=["tif"])
+    mns_file = st.file_uploader("Téléverser le MNS (fichier TIFF)", type=["tif"])
+
+    # Sélection de la méthode de calcul
+    method = st.radio("Choisir la méthode de calcul", [1, 2])
+    altitude_ref = None
+    if method == 2:
+        altitude_ref = st.number_input("Altitude de référence (mètres)", value=0.0)
+
+    # Sélection des polygones pour l'analyse
+    if "drawn_features" in st.session_state and st.session_state["drawn_features"]:
+        polygons = [shape(feature["geometry"]) for feature in st.session_state["drawn_features"]]
     else:
-        st.error("Aucun fichier TIFF (MNT/MNS) n'a été téléversé.")
+        polygons = []
+
+    if mnt_file and mns_file and polygons:
+        # Bouton pour lancer l'analyse
+        if st.button("Lancer l'analyse"):
+            try:
+                # Sauvegarder les fichiers téléversés temporairement
+                mnt_path = f"mnt_{uuid.uuid4()}.tif"
+                mns_path = f"mns_{uuid.uuid4()}.tif"
+                with open(mnt_path, "wb") as f:
+                    f.write(mnt_file.read())
+                with open(mns_path, "wb") as f:
+                    f.write(mns_file.read())
+
+                # Calculer les volumes et surfaces
+                results = calculate_volume_and_area(mnt_path, mns_path, polygons, method, altitude_ref)
+
+                # Afficher les résultats
+                st.write("Résultats de l'analyse :")
+                for i, res in enumerate(results):
+                    st.write(f"Polygone {i+1} : Surface = {res['surface']:.2f} m², Volume = {res['volume']:.2f} m³")
+
+                # Nettoyer les fichiers temporaires
+                os.remove(mnt_path)
+                os.remove(mns_path)
+
+            except Exception as e:
+                st.error(f"Erreur lors de l'analyse spatiale : {e}")
+    else:
+        st.info("Veuillez téléverser les fichiers nécessaires et dessiner des polygones pour commencer l'analyse.")
+
+# Ajouter l'analyse spatiale à l'application
+handle_spatial_analysis()
+import matplotlib.pyplot as plt
+
+def generate_contours(mnt_path, output_path, interval=10):
+    """
+    Génère des courbes de niveau à partir d'un MNT.
+    
+    Args:
+        mnt_path (str): Chemin du fichier MNT.
+        output_path (str): Chemin de sauvegarde de l'image des contours.
+        interval (int): Intervalle entre les courbes de niveau (en mètres).
+    """
+    with rasterio.open(mnt_path) as mnt:
+        # Charger les données du MNT
+        data = mnt.read(1)
+        transform = mnt.transform
+
+        # Masquer les valeurs invalides
+        data = np.ma.masked_equal(data, mnt.nodata)
+
+        # Créer les axes en fonction des dimensions du MNT
+        x = np.arange(data.shape[1]) * transform[0] + transform[2]
+        y = np.arange(data.shape[0]) * transform[4] + transform[5]
+        X, Y = np.meshgrid(x, y)
+
+        # Tracer les courbes de niveau
+        plt.figure(figsize=(10, 8))
+        plt.contour(X, Y, data, levels=np.arange(data.min(), data.max(), interval), cmap="terrain")
+        plt.colorbar(label="Altitude (m)")
+        plt.xlabel("Longitude")
+        plt.ylabel("Latitude")
+        plt.title("Courbes de Niveau")
+        plt.savefig(output_path)
+        plt.close()
+def generate_profile(mnt_path, line_coords, output_path):
+    """
+    Génère un profil topographique à partir d'un MNT et d'une ligne.
+    
+    Args:
+        mnt_path (str): Chemin du fichier MNT.
+        line_coords (list): Liste de coordonnées [(x1, y1), (x2, y2), ...].
+        output_path (str): Chemin de sauvegarde de l'image du profil.
+    """
+    with rasterio.open(mnt_path) as mnt:
+        # Convertir les coordonnées en indices de pixels
+        row_col_coords = [mnt.index(x, y) for x, y in line_coords]
+
+        # Extraire les valeurs d'altitude le long de la ligne
+        altitudes = [mnt.read(1)[row, col] for row, col in row_col_coords]
+
+        # Calculer la distance cumulée le long de la ligne
+        distances = [0]
+        for i in range(1, len(line_coords)):
+            dx = line_coords[i][0] - line_coords[i-1][0]
+            dy = line_coords[i][1] - line_coords[i-1][1]
+            distances.append(distances[-1] + np.sqrt(dx**2 + dy**2))
+
+        # Tracer le profil topographique
+        plt.figure(figsize=(10, 6))
+        plt.plot(distances, altitudes, label="Profil topographique")
+        plt.fill_between(distances, altitudes, alpha=0.3, color="green")
+        plt.xlabel("Distance (m)")
+        plt.ylabel("Altitude (m)")
+        plt.title("Profil Topographique")
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(output_path)
+        plt.close()
+def handle_contours_and_profiles():
+    """
+    Gère la génération des courbes de niveau et des profils topographiques.
+    """
+    st.subheader("Génération de courbes de niveau et profils topographiques")
+
+    mnt_file = st.file_uploader("Téléverser le MNT (fichier TIFF)", type=["tif"])
+
+    if mnt_file:
+        # Sauvegarder temporairement le fichier MNT
+        mnt_path = f"mnt_{uuid.uuid4()}.tif"
+        with open(mnt_path, "wb") as f:
+            f.write(mnt_file.read())
+
+        # Section pour les courbes de niveau
+        st.markdown("### Courbes de Niveau")
+        interval = st.number_input("Intervalle entre les courbes de niveau (m)", value=10, step=1)
+        if st.button("Générer les courbes de niveau"):
+            try:
+                output_path = f"contours_{uuid.uuid4()}.png"
+                generate_contours(mnt_path, output_path, interval)
+                st.image(output_path, caption="Courbes de niveau")
+                os.remove(output_path)
+            except Exception as e:
+                st.error(f"Erreur lors de la génération des courbes de niveau : {e}")
+
+        # Section pour les profils topographiques
+        st.markdown("### Profil Topographique")
+        st.info("Dessinez une ligne sur la carte pour générer un profil.")
+        if "drawn_features" in st.session_state and st.session_state["drawn_features"]:
+            drawn_line = st.session_state["drawn_features"][0]["geometry"]["coordinates"]
+            if st.button("Générer le profil topographique"):
+                try:
+                    output_path = f"profile_{uuid.uuid4()}.png"
+                    generate_profile(mnt_path, drawn_line, output_path)
+                    st.image(output_path, caption="Profil topographique")
+                    os.remove(output_path)
+                except Exception as e:
+                    st.error(f"Erreur lors de la génération du profil : {e}")
+
+        os.remove(mnt_path)
+
+# Ajouter la gestion des courbes de niveau et profils à l'application
+handle_contours_and_profiles()
+import ezdxf
+
+def export_contours_to_dxf(mnt_path, output_path, interval=10):
+    """
+    Exporte les courbes de niveau à partir d'un MNT dans un fichier DXF.
+
+    Args:
+        mnt_path (str): Chemin du fichier MNT.
+        output_path (str): Chemin de sauvegarde du fichier DXF.
+        interval (int): Intervalle entre les courbes de niveau (en mètres).
+    """
+    with rasterio.open(mnt_path) as mnt:
+        # Charger les données du MNT
+        data = mnt.read(1)
+        transform = mnt.transform
+
+        # Masquer les valeurs invalides
+        data = np.ma.masked_equal(data, mnt.nodata)
+
+        # Créer les axes en fonction des dimensions du MNT
+        x = np.arange(data.shape[1]) * transform[0] + transform[2]
+        y = np.arange(data.shape[0]) * transform[4] + transform[5]
+        X, Y = np.meshgrid(x, y)
+
+        # Créer le document DXF
+        doc = ezdxf.new()
+        msp = doc.modelspace()
+
+        # Ajouter des polylignes pour chaque courbe de niveau
+        levels = np.arange(data.min(), data.max(), interval)
+        for level in levels:
+            contours = plt.contour(X, Y, data, levels=[level])
+            for path in contours.collections[0].get_paths():
+                vertices = path.vertices
+                if len(vertices) > 1:
+                    # Ajouter une polyligne pour chaque segment
+                    polyline = msp.add_lwpolyline(vertices, close=False)
+                    polyline.dxf.elevation = level  # Ajouter l'altitude de la courbe
+
+        # Sauvegarder le fichier DXF
+        doc.saveas(output_path)
+def export_profile_to_dxf(line_coords, altitudes, output_path):
+    """
+    Exporte un profil topographique dans un fichier DXF.
+
+    Args:
+        line_coords (list): Liste des coordonnées [(x1, y1), (x2, y2), ...].
+        altitudes (list): Liste des altitudes correspondantes.
+        output_path (str): Chemin de sauvegarde du fichier DXF.
+    """
+    # Créer le document DXF
+    doc = ezdxf.new()
+    msp = doc.modelspace()
+
+    # Ajouter une polyligne 3D représentant le profil topographique
+    profile_coords = [(x, y, z) for (x, y), z in zip(line_coords, altitudes)]
+    msp.add_polyline3d(profile_coords)
+
+    # Sauvegarder le fichier DXF
+    doc.saveas(output_path)
+def handle_dxf_export():
+    """
+    Gère l'exportation des données en DXF.
+    """
+    st.subheader("Exportation des données en format DXF")
+
+    mnt_file = st.file_uploader("Téléverser le MNT (fichier TIFF)", type=["tif"])
+
+    if mnt_file:
+        # Sauvegarder temporairement le fichier MNT
+        mnt_path = f"mnt_{uuid.uuid4()}.tif"
+        with open(mnt_path, "wb") as f:
+            f.write(mnt_file.read())
+
+        # Exporter les courbes de niveau
+        st.markdown("### Export des courbes de niveau")
+        interval = st.number_input("Intervalle entre les courbes de niveau (m)", value=10, step=1)
+        if st.button("Exporter les courbes de niveau en DXF"):
+            try:
+                output_path = f"contours_{uuid.uuid4()}.dxf"
+                export_contours_to_dxf(mnt_path, output_path, interval)
+                st.success("Exportation réussie !")
+                with open(output_path, "rb") as f:
+                    st.download_button("Télécharger le fichier DXF", f, file_name="contours.dxf")
+                os.remove(output_path)
+            except Exception as e:
+                st.error(f"Erreur lors de l'exportation : {e}")
+
+        # Exporter le profil topographique
+        st.markdown("### Export du profil topographique")
+        if "drawn_features" in st.session_state and st.session_state["drawn_features"]:
+            drawn_line = st.session_state["drawn_features"][0]["geometry"]["coordinates"]
+            try:
+                with rasterio.open(mnt_path) as mnt:
+                    # Convertir les coordonnées en indices de pixels
+                    row_col_coords = [mnt.index(x, y) for x, y in drawn_line]
+
+                    # Extraire les altitudes
+                    altitudes = [mnt.read(1)[row, col] for row, col in row_col_coords]
+
+                    # Exporter en DXF
+                    output_path = f"profile_{uuid.uuid4()}.dxf"
+                    export_profile_to_dxf(drawn_line, altitudes, output_path)
+                    st.success("Exportation réussie !")
+                    with open(output_path, "rb") as f:
+                        st.download_button("Télécharger le fichier DXF", f, file_name="profile.dxf")
+                    os.remove(output_path)
+            except Exception as e:
+                st.error(f"Erreur lors de l'exportation du profil : {e}")
+
+        os.remove(mnt_path)
+
+# Ajouter la gestion des exportations DXF à l'application
+handle_dxf_export()
+
