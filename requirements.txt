@@ -24,6 +24,4 @@ pyogrio
 fiona
 plotly
 folium
-fpdf
-dask
-xmltodict
+overpy
