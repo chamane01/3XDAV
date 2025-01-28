@@ -3,7 +3,7 @@ import folium
 from streamlit_folium import st_folium
 import json
 import random
-from shapely.geometry import shape, Point
+from shapely.geometry import shape, Point, mapping  # Import de mapping ici
 import pyproj
 from shapely.ops import transform
 
@@ -68,52 +68,13 @@ if uploaded_file:
     transformer_to_wgs84 = pyproj.Transformer.from_crs(utm_crs, wgs84_crs, always_xy=True)
     buffer_wgs84 = transform(transformer_to_wgs84.transform, buffer_utm)
 
-    # Ajouter le tampon à la carte
-    folium.GeoJson(mapping(buffer_wgs84), name="Tampon 20m").add_to(map_object)
-
-    # Ajout de doublons avec des couleurs différentes pour chaque ID
-    for feature in geojson_data['features']:
-        # Assurez-vous d'avoir une clé 'ID' et une géométrie pour les doublons
-        if 'id' in feature['properties'] and 'geometry' in feature:
-            feature_id = feature['properties']['id']
-            color = random_color()
-
-            # Ajouter le doublon avec la couleur différente
-            folium.GeoJson(
-                feature,
-                style_function=lambda x, color=color: {
-                    'fillColor': color,
-                    'color': color,
-                    'weight': 3,
-                    'fillOpacity': 0.6
-                }
-            ).add_to(map_object)
-
-    # Initialisation de l'analyse
-    st.subheader("Analyse d'intersection")
-    point_within_buffer = False
-    route_name = None
-
-    # Préparer la transformation WGS84 -> UTM pour les géométries des routes
-    transformer_to_utm = pyproj.Transformer.from_crs(wgs84_crs, utm_crs, always_xy=True)
-
-    # Analyse des intersections avec les routes
-    for feature in geojson_data['features']:
-        geom_wgs84 = shape(feature['geometry'])  # Géométrie en WGS84
-        geom_utm = transform(transformer_to_utm.transform, geom_wgs84)  # Reprojection en UTM
-
-        # Vérification de l'intersection avec le tampon
-        if geom_utm.intersects(buffer_utm):
-            point_within_buffer = True
-            route_name = feature['properties'].get('name', 'Nom inconnu')
-            break
-
-    # Afficher les résultats
-    if point_within_buffer:
-        st.write(f"Le point est proche de la route : {route_name}")
+    # Vérifier si buffer_wgs84 est bien une géométrie avant d'utiliser mapping
+    if buffer_wgs84.is_valid:
+        # Ajouter le tampon à la carte
+        folium.GeoJson(mapping(buffer_wgs84), name="Tampon 20m").add_to(map_object)
     else:
-        st.write("Le point n'est pas proche d'une route.")
-
+        st.error("Le tampon généré n'est pas valide.")
+    
     # Afficher la carte dans Streamlit
     st_folium(map_object, width=800, height=600)
 else:
