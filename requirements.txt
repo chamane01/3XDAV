@@ -26,3 +26,4 @@ plotly
 folium
 fpdf
 dask
+xmltodict
