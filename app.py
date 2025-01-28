@@ -13,49 +13,72 @@ def generate_color_from_id(id_value):
     hash_str = hashlib.md5(str(id_value).encode()).hexdigest()[:6]
     return f'#{hash_str}'
 
+def safe_property_access(properties, key):
+    """Accès sécurisé aux propriétés avec valeur par défaut"""
+    return properties.get(key, 'N/A')
+
 def display_geojson(file):
     geojson_data = json.load(file)
     
     # Créer une carte centrée
     m = folium.Map(location=[0, 0], zoom_start=2)
     
-    # Copie des features originales avec ajout de 'is_duplicate'
-    original_features = []
+    # Préparation des features avec propriétés sécurisées
+    processed_features = []
+    target_id = 'way/68486464354'
+
     for feature in geojson_data['features']:
+        # Copie profonde avec propriétés sécurisées
         new_feature = copy.deepcopy(feature)
-        new_feature['properties']['is_duplicate'] = False
-        original_features.append(new_feature)
-    
-    # Création des doublons
-    duplicated_features = []
-    target_id = 'way/68486464354'  # ID spécifique à dupliquer
-    
-    for feature in original_features:
-        if feature['properties'].get('ID') == target_id:
-            duplicated_feature = copy.deepcopy(feature)
-            duplicated_feature['properties']['is_duplicate'] = True
-            duplicated_features.append(duplicated_feature)
-    
-    # Fusion des features
-    all_features = original_features + duplicated_features
-    
-    # Fonction de style personnalisée
+        props = new_feature['properties']
+        
+        # Ajout des propriétés manquantes avec valeurs par défaut
+        props.setdefault('is_duplicate', False)
+        props.setdefault('ID', 'N/A')
+        props.setdefault('highway', 'Inconnu')
+        props.setdefault('lanes', 'N/A')
+        props.setdefault('surface', 'N/A')
+        
+        processed_features.append(new_feature)
+
+        # Création du doublon si ID correspond
+        if props.get('ID') == target_id:
+            duplicated = copy.deepcopy(new_feature)
+            duplicated['properties']['is_duplicate'] = True
+            processed_features.append(duplicated)
+
+    # Fonction de style sécurisée
     def style_function(feature):
-        if feature['properties']['is_duplicate']:
+        if feature['properties'].get('is_duplicate', False):
             return {
                 'color': generate_color_from_id(feature['properties']['ID']),
                 'weight': 4,
                 'opacity': 0.7
             }
         return {'color': '#3388ff', 'weight': 2, 'opacity': 0.5}
-    
-    # Affichage du GeoJSON avec style personnalisé
+
+    # Tooltip personnalisé avec gestion des valeurs manquantes
+    class SafeTooltip(folium.GeoJsonTooltip):
+        def render(self, **kwargs):
+            for field in self.fields:
+                self.labels.append(field if field != 'is_duplicate' else 'Duplicate')
+            super().render(**kwargs)
+
+    # Affichage du GeoJSON
     folium.GeoJson(
-        {'type': 'FeatureCollection', 'features': all_features},
-        name="GeoJSON",
+        {'type': 'FeatureCollection', 'features': processed_features},
+        name="Routes",
         style_function=style_function,
-        tooltip=folium.GeoJsonTooltip(fields=['ID', 'highway', 'lanes', 'surface', 'is_duplicate']),
-        popup=folium.GeoJsonPopup(fields=['ID', 'highway', 'lanes', 'surface', 'is_duplicate'])
+        tooltip=SafeTooltip(
+            fields=['ID', 'highway', 'lanes', 'surface', 'is_duplicate'],
+            aliases=['ID', 'Type', 'Voies', 'Surface', 'Doublon'],
+            localize=True
+        ),
+        popup=folium.GeoJsonPopup(
+            fields=['ID', 'highway', 'lanes', 'surface'],
+            aliases=['ID', 'Type', 'Voies', 'Surface'],
+            localize=True
+        )
     ).add_to(m)
 
     return geojson_data, m
@@ -69,66 +92,43 @@ st.subheader("Saisissez les coordonnées UTM (Zone 30N)")
 easting = st.number_input("Easting (X)", value=500000, step=1)
 northing = st.number_input("Northing (Y)", value=4500000, step=1)
 
-# Définition des systèmes de coordonnées
-utm_zone = 32630  # EPSG:32630 (Zone UTM 30N)
-utm_crs = pyproj.CRS(f"EPSG:{utm_zone}")
+# Systèmes de coordonnées
+utm_crs = pyproj.CRS("EPSG:32630")
 wgs84_crs = pyproj.CRS("EPSG:4326")
-
-# Transformation des coordonnées UTM vers WGS84
 transformer_to_wgs84 = pyproj.Transformer.from_crs(utm_crs, wgs84_crs, always_xy=True)
+transformer_to_utm = pyproj.Transformer.from_crs(wgs84_crs, utm_crs, always_xy=True)
+
+# Conversion des coordonnées
 longitude, latitude = transformer_to_wgs84.transform(easting, northing)
-
-# Affichage des coordonnées transformées
-st.write(f"Coordonnées UTM : ({easting}, {northing})")
-st.write(f"Coordonnées WGS84 : ({longitude:.6f}, {latitude:.6f})")
-
-# Création du point UTM
 point_utm = Point(easting, northing)
 
 if uploaded_file:
-    # Chargement et affichage du GeoJSON
     geojson_data, map_object = display_geojson(uploaded_file)
-
-    # Ajout du marqueur pour le point saisi
-    folium.Marker([latitude, longitude], popup=f"Point Saisi: {longitude:.6f}, {latitude:.6f}").add_to(map_object)
+    
+    # Ajout des éléments cartographiques
+    folium.Marker([latitude, longitude], popup=f"Point saisi: {longitude:.6f}, {latitude:.6f}").add_to(map_object)
     map_object.location = [latitude, longitude]
     map_object.zoom_start = 15
 
-    # Création du tampon UTM
+    # Création et affichage du tampon
     buffer_utm = point_utm.buffer(20)
-    st.write("Tampon (20m) créé autour du point (en UTM).")
-
-    # Transformation du tampon en WGS84
     buffer_wgs84 = transform(transformer_to_wgs84.transform, buffer_utm)
-
-    # Ajout du tampon à la carte
     folium.GeoJson(mapping(buffer_wgs84), name="Tampon 20m").add_to(map_object)
 
     # Analyse d'intersection
-    st.subheader("Analyse d'intersection")
-    point_within_buffer = False
-    route_name = None
-
-    # Préparation de la transformation WGS84 -> UTM
-    transformer_to_utm = pyproj.Transformer.from_crs(wgs84_crs, utm_crs, always_xy=True)
-
-    # Vérification des intersections
+    intersection_trouvee = False
     for feature in geojson_data['features']:
-        geom_wgs84 = shape(feature['geometry'])
-        geom_utm = transform(transformer_to_utm.transform, geom_wgs84)
-
-        if geom_utm.intersects(buffer_utm):
-            point_within_buffer = True
-            route_name = feature['properties'].get('name', 'Nom inconnu')
+        geom = transform(transformer_to_utm.transform, shape(feature['geometry']))
+        if geom.intersects(buffer_utm):
+            intersection_trouvee = True
             break
 
-    # Affichage des résultats
-    if point_within_buffer:
-        st.success(f"Le point est proche de la route : {route_name}")
+    st.subheader("Résultats de l'analyse")
+    if intersection_trouvee:
+        st.success("✅ Le point est à proximité d'une route")
     else:
-        st.error("Le point n'est pas proche d'une route.")
+        st.error("❌ Aucune route à proximité immédiate")
 
-    # Affichage final de la carte
     st_folium(map_object, width=800, height=600)
 else:
     st.info("Veuillez téléverser un fichier GeoJSON pour commencer l'analyse.")
