@@ -2,6 +2,8 @@ import streamlit as st
 import overpy
 import geojson
 import pandas as pd
+import folium
+from folium import plugins
 
 # Fonction pour récupérer les routes nationales via l'API Overpass
 def download_national_roads():
@@ -17,6 +19,29 @@ def download_national_roads():
     out ids qt;
     """
 
+    # Définir les coordonnées de la zone
+    south_lat = 5.25
+    west_lon = -4.05
+    north_lat = 5.30
+    east_lon = -3.95
+
+    # Carte pour afficher l'emprise
+    map_center = [(south_lat + north_lat) / 2, (west_lon + east_lon) / 2]  # Calcul du centre de la zone
+    m = folium.Map(location=map_center, zoom_start=13)
+
+    # Ajouter un rectangle pour visualiser l'emprise
+    folium.Rectangle(
+        bounds=[(south_lat, west_lon), (north_lat, east_lon)],
+        color='blue',
+        weight=2,
+        opacity=0.5
+    ).add_to(m)
+
+    # Affichage de la carte avec Streamlit
+    st.write("Visualisation de l'emprise de la zone géographique.")
+    folium_static(m)
+
+    # Essayer de récupérer les données avec Overpass
     try:
         # Exécuter la requête
         result = api.query(query)
