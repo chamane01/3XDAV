@@ -28,17 +28,16 @@ st.title("Visualiseur de fichiers GeoJSON")
 # Téléversement du fichier GeoJSON
 uploaded_file = st.file_uploader("Téléverser un fichier GeoJSON", type="geojson")
 
-# Saisie manuelle des coordonnées
-utm_zone = 32630
-utm_proj = pyproj.CRS(f"EPSG:{utm_zone}").to_proj4()
-utm_to_wgs84 = pyproj.CRS("EPSG:4326").to_proj4()
-
 # Saisie des coordonnées UTM
 st.subheader("Saisissez les coordonnées UTM (Zone 30N)")
 easting = st.number_input("Easting (X)", value=500000, step=1)
 northing = st.number_input("Northing (Y)", value=4500000, step=1)
 
 # Transformer les coordonnées UTM en WGS84 (longitude, latitude)
+utm_zone = 32630
+utm_proj = pyproj.CRS(f"EPSG:{utm_zone}").to_proj4()
+utm_to_wgs84 = pyproj.CRS("EPSG:4326").to_proj4()
+
 point_utm = Point(easting, northing)
 transformer = pyproj.Transformer.from_proj(utm_proj, utm_to_wgs84)
 longitude, latitude = transformer.transform(point_utm.x, point_utm.y)
@@ -57,6 +56,10 @@ if uploaded_file:
     # Ajouter le point sur la carte
     folium.Marker([latitude, longitude], popup=f"Point Saisi: {longitude}, {latitude}").add_to(map_object)
 
+    # Centrer la carte sur le point saisi
+    map_object.location = [latitude, longitude]
+    map_object.zoom_start = 15
+
     # Calcul du tampon de 20m autour du point (en UTM 32630)
     buffer = point_utm.buffer(20)  # 20m autour du point
     
@@ -69,7 +72,7 @@ if uploaded_file:
     geojson_buffer = geo_buffer.__geo_interface__
     
     # Ajouter le tampon à la carte
-    folium.GeoJson(geojson_buffer).add_to(map_object)
+    folium.GeoJson(geojson_buffer, name="Tampon 20m").add_to(map_object)
 
     # Analyser l'intersection du point et des routes
     st.subheader("Vérification de la proximité avec une route")
@@ -89,6 +92,9 @@ if uploaded_file:
             if 'name' in feature['properties']:
                 route_name = feature['properties']['name']
             break
+
+    # Afficher la carte dans Streamlit
+    st_folium(map_object, width=800, height=600)
 
     # Afficher les résultats de l'analyse
     if point_within_buffer:
