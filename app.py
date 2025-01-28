@@ -8,6 +8,7 @@ import geopandas as gpd
 import pyproj
 from shapely.ops import transform
 from shapely.geometry import Polygon
+from shapely.geometry import shape
 
 def display_geojson(file, utm_proj=None):
     # Charger le fichier GeoJSON
