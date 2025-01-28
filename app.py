@@ -1,58 +1,63 @@
-import streamlit as st
-import requests
-import folium
-from folium.plugins import MarkerCluster
+import overpy
+import pandas as pd
+import geojson
 
-# Définir la zone géographique d'intérêt
-south, west, north, east = 5.25, -4.05, 5.3, -3.95
+# Fonction pour récupérer les routes nationales via l'API Overpass
+def download_national_roads():
+    api = overpy.Overpass()
 
-# Construire l'URL de la requête Overpass
-overpass_url = "https://overpass-api.de/api/interpreter"
-overpass_query = f"""
-<osm-script>
-  <union into="_">
-    <query type="way">
-      <has-kv k="highway" modv="" v=""/>
-      <bbox-query s="{south}" w="{west}" n="{north}" e="{east}"/>
-    </query>
-    <recurse type="way-node"/>
-  </union>
-  <print e="" from="_" geometry="skeleton" ids="yes" limit="" mode="ids_only" n="" order="quadtile" s="" w=""/>
-</osm-script>
-"""
+    # Requête Overpass pour récupérer les routes nationales (highway=primary, secondary, etc.) avec ID et nom
+    query = """
+    way["highway"="primary"](5.25, -4.05, 5.30, -3.95);
+    way["highway"="secondary"](5.25, -4.05, 5.30, -3.95);
+    way["highway"="tertiary"](5.25, -4.05, 5.30, -3.95);
+    node(w);
+    out ids qt;
+    """
 
-# Effectuer la requête Overpass
-response = requests.get(overpass_url, params={'data': overpass_query})
+    # Exécuter la requête Overpass
+    result = api.query(query)
 
-# Vérifier le code de statut de la réponse
-if response.status_code == 200:
-    try:
-        data = response.json()
-    except ValueError:
-        st.error("La réponse de l'API Overpass n'est pas au format JSON valide.")
-        data = None
-else:
-    st.error(f"Erreur lors de la requête Overpass : {response.status_code}")
-    data = None
+    # Liste pour stocker les données
+    roads_data = []
+    geojson_data = {"type": "FeatureCollection", "features": []}
 
-# Si des données valides sont récupérées, les afficher sur la carte
-if data:
-    # Créer une carte centrée sur la zone d'intérêt
-    m = folium.Map(location=[(south + north) / 2, (west + east) / 2], zoom_start=14)
+    # Parcours des ways et extraction des informations
+    for way in result.ways:
+        road = {
+            "id": way.id,
+            "name": way.tags.get("name", "Unknown"),
+            "highway": way.tags.get("highway", "Unknown"),
+            "nodes": [(node.lat, node.lon) for node in way.nodes]
+        }
+        roads_data.append(road)
 
-    # Ajouter un cluster de marqueurs
-    marker_cluster = MarkerCluster().add_to(m)
+        # Créer une feature GeoJSON pour chaque route
+        geojson_feature = {
+            "type": "Feature",
+            "properties": {
+                "id": way.id,
+                "name": way.tags.get("name", "Unknown"),
+                "highway": way.tags.get("highway", "Unknown")
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [(node.lon, node.lat) for node in way.nodes]
+            }
+        }
+        geojson_data["features"].append(geojson_feature)
 
-    # Ajouter les routes à la carte
-    for element in data['elements']:
-        if element['type'] == 'way' and 'nodes' in element:
-            coordinates = [(node['lat'], node['lon']) for node in element['nodes'] if 'lat' in node and 'lon' in node]
-            if coordinates:
-                folium.PolyLine(coordinates, color='blue', weight=2.5, opacity=1).add_to(marker_cluster)
+    # Convertir en DataFrame Pandas pour CSV
+    df = pd.DataFrame(roads_data)
 
-    # Afficher la carte dans Streamlit
-    st.title("Carte des routes")
-    st.markdown("Voici une carte dynamique affichant les routes dans la zone spécifiée.")
-    st_folium(m, width=700, height=500)
-else:
-    st.warning("Aucune donnée valide n'a été récupérée.")
+    # Enregistrer en format CSV
+    df.to_csv("national_roads.csv", index=False)
+
+    # Enregistrer en format GeoJSON
+    with open("national_roads.geojson", "w") as f:
+        geojson.dump(geojson_data, f)
+
+    print("Données téléchargées et enregistrées en national_roads.csv et national_roads.geojson")
+
+# Appeler la fonction
+download_national_roads()
