@@ -1,107 +1,163 @@
 import streamlit as st
 import folium
-from streamlit_folium import st_folium
+from folium import GeoJson
 import json
-from shapely.geometry import shape, Point, Polygon, mapping
-from shapely.ops import transform
-import pyproj
 
-# Fonction pour charger et afficher un GeoJSON
-def display_geojson(file):
-    # Charger le fichier GeoJSON (quel que soit l'extension)
-    geojson_data = json.load(file)
-    
-    # Créer une carte centrée
-    m = folium.Map(location=[0, 0], zoom_start=2)
-    folium.GeoJson(
-        geojson_data,
-        name="GeoJSON",
-        tooltip=folium.GeoJsonTooltip(fields=list(geojson_data['features'][0]['properties'].keys()), aliases=list(geojson_data['features'][0]['properties'].keys())),
-        popup=folium.GeoJsonPopup(fields=list(geojson_data['features'][0]['properties'].keys()))
-    ).add_to(m)
+# Données GeoJSON
+geoJsonData = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {
+                "@id": "way/5009101",
+                "destination": "1er Pont Félix Houphouët-Boigny",
+                "foot": "no",
+                "highway": "primary",
+                "lanes": 2,
+                "lit": "yes",
+                "maxspeed": 60,
+                "maxspeed:bus": 50,
+                "maxspeed:hgv": 50,
+                "maxspeed:tourist_bus": 50,
+                "name": "Avenue Mathieu Ekra",
+                "oneway": "yes",
+                "sidewalk": "no",
+                "source": "MCLU/PADA",
+                "source:date": "2023/05/03",
+                "source:maxspeed": "CI:urban",
+                "surface": "asphalt",
+                "color": "#FF5733"  # Code couleur unique pour ce ID
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                    [-4.0113663, 5.3187904],
+                    [-4.0114749, 5.3186976],
+                    [-4.0115648, 5.3186175],
+                    [-4.0116647, 5.3185387],
+                    [-4.0117659, 5.3184733],
+                    [-4.011894, 5.3184052],
+                    [-4.0122092, 5.3182503],
+                    [-4.0127054, 5.3179905]
+                ]
+            },
+            "id": "way/5009101"
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "@id": "way/22703839",
+                "highway": "trunk",
+                "lanes": 3,
+                "lit": "yes",
+                "maxheight": 5.25,
+                "maxspeed": 100,
+                "name": "Boulevard Jean-Baptiste Mockey",
+                "oneway": "yes",
+                "ref": "A100",
+                "short_name": "Blvd VGE",
+                "source": "MCLU/PADA",
+                "source:date": "2023/05/03",
+                "surface": "asphalt",
+                "color": "#33FF57"  # Code couleur unique pour ce ID
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                    [-3.9009539, 5.2400795],
+                    [-3.9011152, 5.2401055],
+                    [-3.901729, 5.2402092],
+                    [-3.9023834, 5.2403107],
+                    [-3.9027818, 5.2403624],
+                    [-3.9035516, 5.2404803],
+                    [-3.9044106, 5.2406167],
+                    [-3.904976, 5.2406965],
+                    [-3.9053707, 5.2407607],
+                    [-3.9061788, 5.2408903],
+                    [-3.9067498, 5.2409826],
+                    [-3.9072895, 5.2410698],
+                    [-3.9080946, 5.2411853],
+                    [-3.9101332, 5.2415037],
+                    [-3.9117014, 5.2417584]
+                ]
+            },
+            "id": "way/22703839"
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "@id": "way/22703947",
+                "highway": "primary",
+                "lanes": 2,
+                "maxspeed": 60,
+                "maxspeed:bus": 50,
+                "maxspeed:hgv": 50,
+                "maxspeed:tourist_bus": 50,
+                "oneway": "yes",
+                "source": "yahoo",
+                "source:maxspeed": "CI:urban",
+                "surface": "asphalt",
+                "color": "#3357FF"  # Code couleur unique pour ce ID
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                    [-4.0192387, 5.3095622],
+                    [-4.0192237, 5.3092212]
+                ]
+            },
+            "id": "way/22703947"
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "@id": "way/22703949",
+                "bridge": "yes",
+                "bridge:name": "Pont Félix-Houphouët-Boigny",
+                "bridge:structure": "beam",
+                "foot": "no",
+                "highway": "primary",
+                "lanes": 2,
+                "layer": 2,
+                "maxspeed": 60,
+                "maxspeed:bus": 50,
+                "maxspeed:hgv": 50,
+                "maxspeed:tourist_bus": 50,
+                "name": "Pont Felix Houphouét Boigny (FHB)",
+                "oneway": "yes",
+                "source": "MCLU/PADA",
+                "source:date": "2023/05/03",
+                "source:maxspeed": "CI:urban",
+                "surface": "asphalt",
+                "color": "#FF5733"  # Code couleur unique pour ce ID
+            },
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [
+                    [-4.0194623, 5.3145579],
+                    [-4.0192387, 5.3095622]
+                ]
+            },
+            "id": "way/22703949"
+        }
+    ]
+}
 
-    return geojson_data, m
+# Création de la carte Folium centrée sur un point de coordonnées
+m = folium.Map(location=[5.3187904, -4.0113663], zoom_start=15)
 
-# Initialisation de Streamlit
-st.title("Analyse de proximité avec des routes (avec projections UTM)")
+# Ajout des données GeoJSON sur la carte
+folium.GeoJson(
+    geoJsonData,
+    style_function=lambda feature: {
+        'color': feature['properties']['color'],
+        'weight': 5,
+        'opacity': 0.7
+    }
+).add_to(m)
 
-# Option de téléchargement pour les fichiers GeoJSON ou .txt
-uploaded_file = st.file_uploader("Téléverser un fichier GeoJSON ou .txt des routes", type=["geojson", "txt"])
-
-# Entrée utilisateur pour les coordonnées UTM
-st.subheader("Saisissez les coordonnées UTM (Zone 30N)")
-easting = st.number_input("Easting (X)", value=500000, step=1)
-northing = st.number_input("Northing (Y)", value=4500000, step=1)
-
-# Définition des systèmes de coordonnées
-utm_zone = 32630  # EPSG:32630 (Zone UTM 30N)
-utm_crs = pyproj.CRS(f"EPSG:{utm_zone}")
-wgs84_crs = pyproj.CRS("EPSG:4326")
-
-# Transformer les coordonnées UTM vers WGS84 pour l'affichage
-transformer_to_wgs84 = pyproj.Transformer.from_crs(utm_crs, wgs84_crs, always_xy=True)
-longitude, latitude = transformer_to_wgs84.transform(easting, northing)
-
-# Afficher les coordonnées transformées
-st.write(f"Coordonnées UTM : ({easting}, {northing})")
-st.write(f"Coordonnées WGS84 : ({longitude}, {latitude})")
-
-# Création d'un point à partir des coordonnées UTM
-point_utm = Point(easting, northing)
-
-if uploaded_file:
-    # Vérifier l'extension du fichier téléchargé et le traiter en conséquence
-    file_extension = uploaded_file.name.split('.')[-1].lower()
-    
-    if file_extension == "txt":
-        # Si le fichier est .txt, lire son contenu comme s'il s'agissait d'un GeoJSON
-        geojson_data, map_object = display_geojson(uploaded_file)
-    elif file_extension == "geojson":
-        # Si le fichier est déjà en .geojson, traiter normalement
-        geojson_data, map_object = display_geojson(uploaded_file)
-
-    # Ajouter le point sur la carte pour l'affichage
-    folium.Marker([latitude, longitude], popup=f"Point Saisi: {longitude}, {latitude}").add_to(map_object)
-    map_object.location = [latitude, longitude]
-    map_object.zoom_start = 15
-
-    # Création d'un tampon de 20m en UTM
-    buffer_utm = point_utm.buffer(20)  # Rayon de 20m
-    st.write("Tampon (20m) créé autour du point (en UTM).")
-
-    # Transformer le tampon en WGS84 pour l'affichage
-    transformer_to_wgs84 = pyproj.Transformer.from_crs(utm_crs, wgs84_crs, always_xy=True)
-    buffer_wgs84 = transform(transformer_to_wgs84.transform, buffer_utm)
-
-    # Ajouter le tampon à la carte
-    folium.GeoJson(mapping(buffer_wgs84), name="Tampon 20m").add_to(map_object)
-
-    # Initialisation de l'analyse
-    st.subheader("Analyse d'intersection")
-    point_within_buffer = False
-    route_name = None
-
-    # Préparer la transformation WGS84 -> UTM pour les géométries des routes
-    transformer_to_utm = pyproj.Transformer.from_crs(wgs84_crs, utm_crs, always_xy=True)
-
-    # Analyse des intersections avec les routes
-    for feature in geojson_data['features']:
-        geom_wgs84 = shape(feature['geometry'])  # Géométrie en WGS84
-        geom_utm = transform(transformer_to_utm.transform, geom_wgs84)  # Reprojection en UTM
-
-        # Vérification de l'intersection avec le tampon
-        if geom_utm.intersects(buffer_utm):
-            point_within_buffer = True
-            route_name = feature['properties'].get('name', 'Nom inconnu')
-            break
-
-    # Afficher les résultats
-    if point_within_buffer:
-        st.write(f"Le point est proche de la route : {route_name}")
-    else:
-        st.write("Le point n'est pas proche d'une route.")
-
-    # Afficher la carte dans Streamlit
-    st_folium(map_object, width=800, height=600)
-else:
-    st.write("Veuillez téléverser un fichier GeoJSON ou .txt pour analyser.")
+# Affichage de la carte dans Streamlit
+st.title("Carte des Routes")
+st.markdown("Voici une carte affichant plusieurs routes avec leurs caractéristiques.")
+st.components.v1.html(m._repr_html_(), height=600)
