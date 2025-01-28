@@ -1,37 +1,56 @@
 import streamlit as st
-import pandas as pd
-import folium
-from folium.plugins import MarkerCluster
+import geopandas as gpd
+import os
+from io import StringIO
 
-# Données des routes (extraites de ta liste)
-data = {
-    "@id": [5009057, 5009058, 5009089, 5009090, 5009101, 19581591, 22702967, 22702968, 22702975, 22702976],
-    "name": ["", "Boulevard Hortense Aka Anghui", "Avenue Nanan Yamousso", "Avenue Françis Wodié", "Avenue Mathieu Ekra", 
-             "Rue A18", "Boulevard Hassan II", "Avenue Fologo Laurent Dona", "Boulevard Latrille", "Boulevard Latrille"],
-    "@lat": [5.2671426, 5.2604487, 5.2967983, 5.2950101, 5.3183904, 5.2895384, 5.3296352, 5.3601100, 5.3280068, 5.3998713],
-    "@lon": [-3.9613224, -3.9670066, -4.0032469, -4.0045306, -4.0120359, -4.0084709, -4.0091982, -4.0169686, -4.0048825, -3.9913531]
-}
+# Titre de l'application
+st.title("Convertisseur de fichiers JSON vers GeoJSON/Shapefile")
 
-# Créer un DataFrame à partir des données
-df = pd.DataFrame(data)
+# Téléverser un fichier JSON
+uploaded_file = st.file_uploader("Téléversez votre fichier JSON", type=["json"])
 
-# Création de la carte avec folium
-map_center = [df["@lat"].mean(), df["@lon"].mean()]  # Centrer la carte sur la moyenne des coordonnées
-m = folium.Map(location=map_center, zoom_start=13)
+if uploaded_file is not None:
+    # Lire le fichier JSON
+    try:
+        # Convertir le fichier téléversé en GeoDataFrame
+        gdf = gpd.read_file(uploaded_file)
 
-# Ajouter un cluster de marqueurs
-marker_cluster = MarkerCluster().add_to(m)
+        # Afficher un aperçu des données
+        st.write("Aperçu des données :")
+        st.write(gdf.head())
 
-# Ajouter les marqueurs à la carte
-for idx, row in df.iterrows():
-    folium.Marker(
-        location=[row["@lat"], row["@lon"]],
-        popup=f"{row['name'] if row['name'] else 'Route'} (ID: {row['@id']})",
-    ).add_to(marker_cluster)
+        # Vérifier si le fichier contient des géométries
+        if not isinstance(gdf, gpd.GeoDataFrame):
+            st.error("Le fichier JSON ne contient pas de géométries valides.")
+        else:
+            st.success("Le fichier JSON est un GeoJSON valide.")
 
-# Afficher la carte dans Streamlit
-st.title("Carte des Routes")
-st.markdown("Voici une carte interactive des routes avec leurs coordonnées.")
-st.dataframe(df)  # Afficher la table des routes
-st.write("Cliquez sur un marqueur pour voir le nom et l'ID de la route.")
-st.components.v1.html(m._repr_html_(), height=500)
+            # Options de conversion
+            st.write("### Options de conversion")
+            output_format = st.selectbox("Choisissez le format de sortie", ["GeoJSON", "Shapefile"])
+
+            # Bouton pour lancer la conversion
+            if st.button("Convertir"):
+                if output_format == "GeoJSON":
+                    # Exporter en GeoJSON
+                    output_file = "output.geojson"
+                    gdf.to_file(output_file, driver="GeoJSON")
+                elif output_format == "Shapefile":
+                    # Exporter en Shapefile
+                    output_file = "output.shp"
+                    gdf.to_file(output_file, driver="ESRI Shapefile")
+
+                # Télécharger le fichier converti
+                with open(output_file, "rb") as f:
+                    st.download_button(
+                        label="Télécharger le fichier converti",
+                        data=f,
+                        file_name=output_file,
+                        mime="application/octet-stream"
+                    )
+
+                # Supprimer le fichier temporaire
+                os.remove(output_file)
+
+    except Exception as e:
+        st.error(f"Erreur lors de la lecture du fichier JSON : {e}")
