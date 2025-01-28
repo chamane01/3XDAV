@@ -1,109 +1,94 @@
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
-import geopandas as gpd
-from shapely.geometry import Point, Polygon
 import json
+from shapely.geometry import Point, shape
+from shapely.ops import transform
+import pyproj
+import geopandas as gpd
 
-def reproject_to_utm(gdf):
-    if gdf.crs is None:
-        gdf.set_crs("EPSG:4326", inplace=True)
-    try:
-        centroid = gdf.geometry.unary_union.centroid
-        utm_zone = int((centroid.x + 180) // 6) + 1
-        utm_crs = f"EPSG:{326 if centroid.y >= 0 else 327}{utm_zone}"
-        return gdf.to_crs(utm_crs)
-    except Exception as e:
-        raise ValueError(f"Erreur lors de la reprojection : {e}")
+# Fonction pour convertir les coordonnées en UTM
+def convert_to_utm(lat, lon):
+    utm_zone = int((lon + 180) // 6) + 1
+    utm_proj = pyproj.CRS(f"EPSG:326{utm_zone}")
+    wgs84_proj = pyproj.CRS("EPSG:4326")
+    project = pyproj.Transformer.from_crs(wgs84_proj, utm_proj, always_xy=True).transform
+    x, y = transform(project, Point(lon, lat))
+    return x, y
 
-def create_buffer(gdf, distance):
-    buffer_gdf = gdf.buffer(distance)
-    buffer_gdf = gpd.GeoSeries(
-        [geom if geom.is_valid else geom.buffer(0) for geom in buffer_gdf], 
-        crs=gdf.crs
-    )
-    return buffer_gdf
+# Fonction pour créer un tampon autour d'un point
+def create_buffer(lat, lon, radius=20):
+    x, y = convert_to_utm(lat, lon)
+    buffer = Point(x, y).buffer(radius)  # Rayon en mètres
+    return buffer
 
-def check_point_proximity(point, gdf, buffer_gdf):
-    result = []
-    for idx, row in gdf.iterrows():
-        if point.within(row.geometry):
-            result.append((row['ID'], row.get('name', 'N/A'), row.get('classe', 'N/A')))
-        elif point.within(buffer_gdf.iloc[idx]):
-            result.append((row['ID'], row.get('name', 'N/A'), row.get('classe', 'N/A')))
-    return result
+# Fonction pour vérifier les intersections
+def check_intersections(buffer, geojson_data):
+    intersecting_features = []
+    for feature in geojson_data['features']:
+        geom = shape(feature['geometry'])
+        if buffer.intersects(geom):
+            intersecting_features.append(feature['properties'])
+    return intersecting_features
 
+# Fonction pour afficher le GeoJSON
 def display_geojson(file):
-    try:
-        geojson_data = json.load(file)
-        assert "features" in geojson_data, "Le fichier GeoJSON ne contient pas de 'features'."
-    except Exception as e:
-        st.error(f"Erreur lors du chargement du GeoJSON : {e}")
-        return None, None, None
+    geojson_data = json.load(file)
+    m = folium.Map(location=[0, 0], zoom_start=2)
 
-    gdf = gpd.GeoDataFrame.from_features(geojson_data["features"])
-    gdf = gdf[gdf.geometry.notnull() & gdf.is_valid]
+    # Ajouter le GeoJSON à la carte avec une info-bulle
+    folium.GeoJson(
+        geojson_data,
+        name="GeoJSON",
+        tooltip=folium.GeoJsonTooltip(
+            fields=list(geojson_data['features'][0]['properties'].keys()),
+            aliases=list(geojson_data['features'][0]['properties'].keys())
+        )
+    ).add_to(m)
 
-    try:
-        gdf = reproject_to_utm(gdf)
-    except ValueError as e:
-        st.error(str(e))
-        return None, None, None
+    return m, geojson_data
 
-    buffer_gdf = create_buffer(gdf, 10)
-    buffer_gdf = buffer_gdf[buffer_gdf.notnull() & buffer_gdf.is_valid]
+# Interface Streamlit
+st.title("Analyse spatiale avec tampon")
 
-    try:
-        m = folium.Map(location=[gdf.geometry.centroid.y.mean(), gdf.geometry.centroid.x.mean()], zoom_start=12)
-        folium.GeoJson(
-            gdf.to_crs("EPSG:4326").to_json(),
-            name="Routes",
-            tooltip=folium.GeoJsonTooltip(fields=['ID', 'name', 'classe'], aliases=['ID', 'Nom', 'Classe']),
-        ).add_to(m)
-        folium.GeoJson(
-            gpd.GeoDataFrame(geometry=buffer_gdf).to_crs("EPSG:4326").to_json(),
-            name="Zones Tampons",
-            style_function=lambda x: {
-                "fillColor": "blue",
-                "color": "blue",
-                "weight": 1,
-                "fillOpacity": 0.2,
-            },
-        ).add_to(m)
-    except Exception as e:
-        st.error(f"Erreur lors de la création de la carte : {e}")
-        return None, None, None
-
-    return m, gdf, buffer_gdf
-
-st.title("Analyse GeoJSON avec Tampon et Recherche de Proximité")
+# Téléversement du fichier GeoJSON
 uploaded_file = st.file_uploader("Téléverser un fichier GeoJSON", type="geojson")
 
 if uploaded_file:
     st.write("Fichier chargé avec succès !")
-    map_object, gdf, buffer_gdf = display_geojson(uploaded_file)
 
-    if map_object:
-        try:
-            st_data = st_folium(map_object, width=700, height=500)
-        except Exception as e:
-            st.error(f"Erreur lors de l'affichage de la carte : {e}")
+    # Afficher la carte interactive
+    st.subheader("Carte dynamique")
+    map_object, geojson_data = display_geojson(uploaded_file)
+    st_data = st_folium(map_object, width=700, height=500)
 
-        st.subheader("Vérification de la proximité")
-        col1, col2 = st.columns(2)
-        with col1:
-            latitude = st.number_input("Latitude", format="%.6f")
-        with col2:
-            longitude = st.number_input("Longitude", format="%.6f")
+    # Ajouter un point manuel
+    st.subheader("Ajouter un point pour analyse")
+    lat = st.number_input("Latitude", format="%.6f")
+    lon = st.number_input("Longitude", format="%.6f")
+    buffer_radius = st.slider("Rayon du tampon (mètres)", min_value=1, max_value=100, value=20)
 
-        if latitude and longitude:
-            point = Point(longitude, latitude)
-            point_gdf = gpd.GeoSeries([point], crs="EPSG:4326").to_crs(gdf.crs)
-            proximity_results = check_point_proximity(point_gdf.iloc[0], gdf, buffer_gdf)
+    if st.button("Analyser"):
+        # Créer un tampon autour du point ajouté
+        buffer = create_buffer(lat, lon, radius=buffer_radius)
 
-            if proximity_results:
-                st.write("Le point est proche des routes suivantes :")
-                for res in proximity_results:
-                    st.write(f"- ID: {res[0]}, Nom: {res[1]}, Classe: {res[2]}")
-            else:
-                st.write("Le point n'est proche d'aucune route.")
+        # Vérifier les intersections avec les entités du GeoJSON
+        intersections = check_intersections(buffer, geojson_data)
+
+        if intersections:
+            st.write(f"{len(intersections)} entité(s) intersectée(s) :")
+            for feature in intersections:
+                st.json(feature)
+        else:
+            st.write("Aucune intersection trouvée.")
+
+        # Ajouter le point et le tampon sur la carte
+        folium.Marker(location=[lat, lon], tooltip="Point ajouté").add_to(map_object)
+        folium.Circle(
+            location=[lat, lon],
+            radius=buffer_radius,
+            color="red",
+            fill=True,
+            fill_opacity=0.3
+        ).add_to(map_object)
+        st_folium(map_object, width=700, height=500)
