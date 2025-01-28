@@ -3,10 +3,9 @@ import folium
 from streamlit_folium import st_folium
 import json
 from shapely.geometry import Point, shape
-import pyproj
 from pyproj import Transformer
 
-# Fonction pour vérifier si le GeoJSON est en UTM (basé sur son CRS)
+# Fonction pour vérifier si le GeoJSON est en UTM
 def is_geojson_utm(geojson_data):
     crs = geojson_data.get("crs", {}).get("properties", {}).get("name", "")
     return "UTM" in crs or "326" in crs or "327" in crs  # Vérifie si le CRS mentionne UTM ou EPSG 326/327
@@ -15,20 +14,6 @@ def is_geojson_utm(geojson_data):
 def convert_coordinates(x, y, from_crs, to_crs):
     transformer = Transformer.from_crs(from_crs, to_crs, always_xy=True)
     return transformer.transform(x, y)
-
-# Fonction pour créer un tampon autour d'un point (en mètres)
-def create_buffer(x, y, radius=20):
-    buffer = Point(x, y).buffer(radius)  # Rayon en mètres
-    return buffer
-
-# Fonction pour vérifier les intersections avec les entités GeoJSON
-def check_intersections(buffer, geojson_data):
-    intersecting_features = []
-    for feature in geojson_data['features']:
-        geom = shape(feature['geometry'])  # Convertir en géométrie Shapely
-        if buffer.intersects(geom):  # Vérifier si le tampon intersecte la géométrie
-            intersecting_features.append(feature['properties'])
-    return intersecting_features
 
 # Fonction pour afficher le GeoJSON
 def display_geojson(file):
@@ -83,17 +68,15 @@ if uploaded_file:
         try:
             # Convertir les coordonnées si nécessaire
             if geojson_is_utm:
-                point_x, point_y = x, y
+                # Convertir les coordonnées UTM en latitude/longitude pour l'affichage
+                point_lat, point_lon = convert_coordinates(x, y, "EPSG:32633", "EPSG:4326")  # EPSG:32633 à adapter
             else:
-                point_x, point_y = convert_coordinates(
-                    lon, lat, "EPSG:4326", "EPSG:32633"  # Vous pouvez adapter la zone EPSG ici
-                )
+                point_lat, point_lon = lat, lon
 
             # Ajouter le point et le tampon à la carte
-            folium.Marker(location=[lat, lon] if not geojson_is_utm else [point_y, point_x],
-                          tooltip="Point ajouté").add_to(map_object)
+            folium.Marker(location=[point_lat, point_lon], tooltip="Point ajouté").add_to(map_object)
             folium.Circle(
-                location=[lat, lon] if not geojson_is_utm else [point_y, point_x],
+                location=[point_lat, point_lon],
                 radius=buffer_radius,
                 color="blue",
                 fill=True,
@@ -106,21 +89,5 @@ if uploaded_file:
             st_folium(map_object, width=700, height=500)
 
         except Exception as e:
-            st.error(f"Une erreur s'est produite : {e}")
+            st.error(f"Une erreur s'est produite lors de l'affichage du point : {e}")
 
-    # Vérification des intersections
-    st.subheader("Analyser les intersections")
-    if st.button("Analyser"):
-        try:
-            buffer = create_buffer(point_x, point_y, radius=buffer_radius)
-            intersections = check_intersections(buffer, geojson_data)
-
-            if intersections:
-                st.write(f"{len(intersections)} entité(s) intersectée(s) :")
-                for feature in intersections:
-                    st.json(feature)
-            else:
-                st.write("Aucune intersection trouvée.")
-
-        except Exception as e:
-            st.error(f"Une erreur s'est produite : {e}")
