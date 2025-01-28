@@ -1,7 +1,8 @@
 import streamlit as st
 import geopandas as gpd
-import os
+import json
 from io import StringIO
+import os
 
 # Titre de l'application
 st.title("Convertisseur de fichiers JSON vers GeoJSON/Shapefile")
@@ -10,20 +11,23 @@ st.title("Convertisseur de fichiers JSON vers GeoJSON/Shapefile")
 uploaded_file = st.file_uploader("Téléversez votre fichier JSON", type=["json"])
 
 if uploaded_file is not None:
-    # Lire le fichier JSON
+    # Lire le fichier JSON comme texte
+    json_data = uploaded_file.read().decode("utf-8")
+
     try:
-        # Convertir le fichier téléversé en GeoDataFrame
-        gdf = gpd.read_file(uploaded_file)
+        # Essayer de charger le JSON
+        data = json.loads(json_data)
 
-        # Afficher un aperçu des données
-        st.write("Aperçu des données :")
-        st.write(gdf.head())
-
-        # Vérifier si le fichier contient des géométries
-        if not isinstance(gdf, gpd.GeoDataFrame):
-            st.error("Le fichier JSON ne contient pas de géométries valides.")
-        else:
+        # Vérifier si c'est un GeoJSON valide
+        if data.get("type") == "FeatureCollection" and "features" in data:
             st.success("Le fichier JSON est un GeoJSON valide.")
+
+            # Convertir en GeoDataFrame
+            gdf = gpd.GeoDataFrame.from_features(data["features"])
+
+            # Afficher un aperçu des données
+            st.write("Aperçu des données :")
+            st.write(gdf.head())
 
             # Options de conversion
             st.write("### Options de conversion")
@@ -51,6 +55,10 @@ if uploaded_file is not None:
 
                 # Supprimer le fichier temporaire
                 os.remove(output_file)
+        else:
+            st.error("Le fichier JSON n'est pas un GeoJSON valide. Assurez-vous qu'il contient une 'FeatureCollection'.")
 
+    except json.JSONDecodeError:
+        st.error("Le fichier n'est pas un JSON valide.")
     except Exception as e:
         st.error(f"Erreur lors de la lecture du fichier JSON : {e}")
