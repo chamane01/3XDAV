@@ -50,22 +50,74 @@ def display_geojson(file):
     return geojson_data, m
 
 # Interface Streamlit
-st.title("Visualiseur de fichiers GeoJSON")
+st.title("Visualiseur de fichiers GeoJSON avec coloration par ID")
+
+# Saisie des coordonnées UTM
+st.subheader("Saisissez les coordonnées UTM (Zone 30N)")
+easting = st.number_input("Easting (X)", value=500000, step=1)
+northing = st.number_input("Northing (Y)", value=4500000, step=1)
+
+# Conversion UTM vers WGS84
+try:
+    utm_zone = 32630
+    utm_proj = pyproj.CRS(f"EPSG:{utm_zone}")
+    wgs84_proj = pyproj.CRS("EPSG:4326")
+    transformer = pyproj.Transformer.from_crs(utm_proj, wgs84_proj)
+    longitude, latitude = transformer.transform(easting, northing)
+except Exception as e:
+    st.error(f"Erreur de conversion : {str(e)}")
+    longitude, latitude = 0.0, 0.0
+
+# Affichage des coordonnées
+st.write(f"Coordonnées UTM : ({easting}, {northing})")
+st.write(f"Coordonnées WGS84 : ({longitude:.6f}, {latitude:.6f})")
 
 # Téléversement du fichier GeoJSON
 uploaded_file = st.file_uploader("Téléverser un fichier GeoJSON", type="geojson")
 
-# ... (le reste du code reste inchangé jusqu'à la partie d'affichage de la carte)
-
 if uploaded_file:
-    st.write("Fichier chargé avec succès!")
-    
-    # Charger et afficher le fichier GeoJSON avec les deux couches
     geojson_data, map_object = display_geojson(uploaded_file)
-
-    # Ajouter le point sur la carte
-    folium.Marker([latitude, longitude], popup=f"Point Saisi: {longitude}, {latitude}").add_to(map_object)
     
-    # ... (le reste du code reste inchangé)
+    # Ajout du marqueur
+    folium.Marker(
+        [latitude, longitude],
+        popup=f"Point saisi:<br>{longitude:.6f}, {latitude:.6f}",
+        icon=folium.Icon(color='red', icon='info-sign')
+    ).add_to(map_object)
 
-# ... (la fin du code reste inchangée)
+    # Configuration de la carte
+    map_object.location = [latitude, longitude]
+    map_object.zoom_start = 15
+
+    # Calcul du tampon
+    try:
+        point_utm = Point(easting, northing)
+        buffer_utm = point_utm.buffer(20)
+        transformer_buffer = pyproj.Transformer.from_crs(utm_proj, wgs84_proj)
+        buffer_wgs84 = transform(transformer_buffer.transform, buffer_utm)
+        folium.GeoJson(Polygon(buffer_wgs84), name="Tampon 20m").add_to(map_object)
+    except Exception as e:
+        st.error(f"Erreur dans le calcul du tampon : {str(e)}")
+
+    # Vérification des intersections
+    point_in_buffer = False
+    route_name = None
+    
+    for feature in geojson_data['features']:
+        geom = shape(feature['geometry'])
+        geom_wgs84 = transform(transformer_buffer.transform, geom)
+        if geom_wgs84.intersects(buffer_wgs84):
+            point_in_buffer = True
+            route_name = feature['properties'].get('name')
+            break
+
+    # Affichage final
+    st_folium(map_object, width=800, height=600)
+    
+    if point_in_buffer:
+        st.success(f"Point proche d'une route{f' : {route_name}' if route_name else ''}")
+    else:
+        st.warning("Le point n'est pas proche d'une route")
+
+else:
+    st.info("Veuillez téléverser un fichier GeoJSON pour commencer")
