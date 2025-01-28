@@ -57,19 +57,12 @@ def display_geojson(file):
             }
         return {'color': '#3388ff', 'weight': 2, 'opacity': 0.5}
 
-    # Tooltip personnalisé avec gestion des valeurs manquantes
-    class SafeTooltip(folium.GeoJsonTooltip):
-        def render(self, **kwargs):
-            for field in self.fields:
-                self.labels.append(field if field != 'is_duplicate' else 'Duplicate')
-            super().render(**kwargs)
-
-    # Affichage du GeoJSON
+    # Affichage du GeoJSON avec tooltip corrigé
     folium.GeoJson(
         {'type': 'FeatureCollection', 'features': processed_features},
         name="Routes",
         style_function=style_function,
-        tooltip=SafeTooltip(
+        tooltip=folium.GeoJsonTooltip(
             fields=['ID', 'highway', 'lanes', 'surface', 'is_duplicate'],
             aliases=['ID', 'Type', 'Voies', 'Surface', 'Doublon'],
             localize=True
