@@ -3,7 +3,7 @@ import folium
 from folium import GeoJson
 import json
 
-# Données GeoJSON
+# Données GeoJSON (les coordonnées doivent être en EPSG:4326)
 geoJsonData = {
     "type": "FeatureCollection",
     "features": [
@@ -103,7 +103,7 @@ geoJsonData = {
             "geometry": {
                 "type": "LineString",
                 "coordinates": [
-                    [-4.0192387, 5.3095622],
+                    [-4.0192387, 5.3145579],
                     [-4.0192237, 5.3092212]
                 ]
             },
@@ -145,11 +145,12 @@ geoJsonData = {
 }
 
 # Création de la carte Folium centrée sur un point de coordonnées
-m = folium.Map(location=[5.3187904, -4.0113663], zoom_start=15)
+m = folium.Map(location=[5.3187904, -4.0113663], zoom_start=15, control_scale=True)
 
 # Ajout des données GeoJSON sur la carte
 folium.GeoJson(
     geoJsonData,
+    name="Routes",
     style_function=lambda feature: {
         'color': feature['properties']['color'],
         'weight': 5,
