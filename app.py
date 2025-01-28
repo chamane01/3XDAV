@@ -3,7 +3,8 @@ import overpy
 import geojson
 import pandas as pd
 import folium
-from streamlit_folium import folium_static  # Correct import
+from streamlit_folium import folium_static
+import json
 
 # Fonction pour récupérer les routes nationales via l'API Overpass
 def download_national_roads(south_lat, west_lon, north_lat, east_lon):
@@ -62,41 +63,48 @@ def download_national_roads(south_lat, west_lon, north_lat, east_lon):
         df = pd.DataFrame(routes_data)
         st.write(df)  # Afficher le tableau des routes
 
-        # Exporter les données au format CSV
-        csv_file = df.to_csv(index=False)
-        st.download_button(
-            label="Télécharger les données CSV",
-            data=csv_file,
-            file_name="national_roads.csv",
-            mime="text/csv"
-        )
+        # Estimation de la taille du fichier (en octets)
+        estimated_size = len(json.dumps(result))  # Estimation de la taille en octets (version JSON de la réponse)
+        estimated_size_kb = estimated_size / 1024  # Convertir en Ko
+        st.write(f"Estimation de la taille du fichier: {estimated_size_kb:.2f} Ko")
 
-        # Convertir en GeoJSON
-        features = []
-        for way in result.ways:
-            coordinates = [(node.lon, node.lat) for node in way.nodes]
-            features.append({
-                "type": "Feature",
-                "geometry": {
-                    "type": "LineString",
-                    "coordinates": coordinates
-                },
-                "properties": {
-                    "ID": way.id,
-                    "Nom": way.tags.get('name', 'Inconnu')
-                }
-            })
+        # Demander confirmation avant téléchargement
+        if st.button("Télécharger les données"):
+            # Exporter les données au format CSV
+            csv_file = df.to_csv(index=False)
+            st.download_button(
+                label="Télécharger les données CSV",
+                data=csv_file,
+                file_name="national_roads.csv",
+                mime="text/csv"
+            )
 
-        geojson_data = geojson.FeatureCollection(features)
+            # Convertir en GeoJSON
+            features = []
+            for way in result.ways:
+                coordinates = [(node.lon, node.lat) for node in way.nodes]
+                features.append({
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": coordinates
+                    },
+                    "properties": {
+                        "ID": way.id,
+                        "Nom": way.tags.get('name', 'Inconnu')
+                    }
+                })
 
-        # Exporter les données GeoJSON
-        geojson_file = geojson.dumps(geojson_data)
-        st.download_button(
-            label="Télécharger les données GeoJSON",
-            data=geojson_file,
-            file_name="national_roads.geojson",
-            mime="application/geo+json"
-        )
+            geojson_data = geojson.FeatureCollection(features)
+
+            # Exporter les données GeoJSON
+            geojson_file = geojson.dumps(geojson_data)
+            st.download_button(
+                label="Télécharger les données GeoJSON",
+                data=geojson_file,
+                file_name="national_roads.geojson",
+                mime="application/geo+json"
+            )
 
     except Exception as e:
         st.error(f"Une erreur est survenue : {e}")
