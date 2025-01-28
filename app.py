@@ -3,7 +3,7 @@ import overpy
 import geojson
 import pandas as pd
 import folium
-from folium import plugins
+from streamlit_folium import folium_static  # Correct import
 
 # Fonction pour récupérer les routes nationales via l'API Overpass
 def download_national_roads():
@@ -39,7 +39,7 @@ def download_national_roads():
 
     # Affichage de la carte avec Streamlit
     st.write("Visualisation de l'emprise de la zone géographique.")
-    folium_static(m)
+    folium_static(m)  # Utilisation de folium_static pour afficher la carte
 
     # Essayer de récupérer les données avec Overpass
     try:
