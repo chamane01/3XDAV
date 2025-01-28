@@ -2,9 +2,10 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import json
-from shapely.geometry import shape, Point, Polygon, mapping
-from shapely.ops import transform
+import random
+from shapely.geometry import shape, Point
 import pyproj
+from shapely.ops import transform
 
 # Fonction pour charger et afficher un GeoJSON
 def display_geojson(file):
@@ -20,6 +21,10 @@ def display_geojson(file):
     ).add_to(m)
 
     return geojson_data, m
+
+# Fonction pour générer une couleur aléatoire
+def random_color():
+    return "#{:02x}{:02x}{:02x}".format(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
 
 # Initialisation de Streamlit
 st.title("Analyse de proximité avec des routes (avec projections UTM)")
@@ -65,6 +70,24 @@ if uploaded_file:
 
     # Ajouter le tampon à la carte
     folium.GeoJson(mapping(buffer_wgs84), name="Tampon 20m").add_to(map_object)
+
+    # Ajout de doublons avec des couleurs différentes pour chaque ID
+    for feature in geojson_data['features']:
+        # Assurez-vous d'avoir une clé 'ID' et une géométrie pour les doublons
+        if 'id' in feature['properties'] and 'geometry' in feature:
+            feature_id = feature['properties']['id']
+            color = random_color()
+
+            # Ajouter le doublon avec la couleur différente
+            folium.GeoJson(
+                feature,
+                style_function=lambda x, color=color: {
+                    'fillColor': color,
+                    'color': color,
+                    'weight': 3,
+                    'fillOpacity': 0.6
+                }
+            ).add_to(map_object)
 
     # Initialisation de l'analyse
     st.subheader("Analyse d'intersection")
