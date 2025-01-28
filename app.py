@@ -80,11 +80,12 @@ if uploaded_file:
     for feature in geojson_data['features']:
         geom = shape(feature['geometry'])
 
-        # Reprojection de la géométrie du GeoJSON en WGS84
-        geom_wgs84 = transform(transformer_for_display.transform, geom)
+        # Reprojection de la géométrie du GeoJSON en WGS84 si nécessaire
+        if geom.crs != "EPSG:4326":
+            geom = transform(transformer_for_display.transform, geom)
 
         # Vérification de l'intersection avec le tampon
-        if geom_wgs84.intersects(buffer):  # Le point est proche d'une route si une intersection est détectée
+        if geom.intersects(buffer):  # Le point est proche d'une route si une intersection est détectée
             point_within_buffer = True
             if 'name' in feature['properties']:
                 route_name = feature['properties']['name']
