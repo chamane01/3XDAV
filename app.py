@@ -1,123 +1,37 @@
 import streamlit as st
-import overpy
-import geojson
 import pandas as pd
 import folium
-from streamlit_folium import folium_static
-import json
+from folium.plugins import MarkerCluster
 
-# Fonction pour récupérer les routes nationales via l'API Overpass
-def download_national_roads(south_lat, west_lon, north_lat, east_lon):
-    # Connexion à l'API Overpass
-    api = overpy.Overpass()
+# Données des routes (extraites de ta liste)
+data = {
+    "@id": [5009057, 5009058, 5009089, 5009090, 5009101, 19581591, 22702967, 22702968, 22702975, 22702976],
+    "name": ["", "Boulevard Hortense Aka Anghui", "Avenue Nanan Yamousso", "Avenue Françis Wodié", "Avenue Mathieu Ekra", 
+             "Rue A18", "Boulevard Hassan II", "Avenue Fologo Laurent Dona", "Boulevard Latrille", "Boulevard Latrille"],
+    "@lat": [5.2671426, 5.2604487, 5.2967983, 5.2950101, 5.3183904, 5.2895384, 5.3296352, 5.3601100, 5.3280068, 5.3998713],
+    "@lon": [-3.9613224, -3.9670066, -4.0032469, -4.0045306, -4.0120359, -4.0084709, -4.0091982, -4.0169686, -4.0048825, -3.9913531]
+}
 
-    # Requête Overpass pour récupérer les routes principales, secondaires et tertiaires
-    query = f"""
-    way["highway"="primary"]({south_lat}, {west_lon}, {north_lat}, {east_lon});
-    way["highway"="secondary"]({south_lat}, {west_lon}, {north_lat}, {east_lon});
-    way["highway"="tertiary"]({south_lat}, {west_lon}, {north_lat}, {east_lon});
-    node(w);
-    out ids qt;
-    """
+# Créer un DataFrame à partir des données
+df = pd.DataFrame(data)
 
-    # Carte pour afficher l'emprise
-    map_center = [(south_lat + north_lat) / 2, (west_lon + east_lon) / 2]  # Calcul du centre de la zone
-    m = folium.Map(location=map_center, zoom_start=13)
+# Création de la carte avec folium
+map_center = [df["@lat"].mean(), df["@lon"].mean()]  # Centrer la carte sur la moyenne des coordonnées
+m = folium.Map(location=map_center, zoom_start=13)
 
-    # Ajouter un rectangle pour visualiser l'emprise
-    folium.Rectangle(
-        bounds=[(south_lat, west_lon), (north_lat, east_lon)],
-        color='blue',
-        weight=2,
-        opacity=0.5
-    ).add_to(m)
+# Ajouter un cluster de marqueurs
+marker_cluster = MarkerCluster().add_to(m)
 
-    # Affichage de la carte avec Streamlit
-    st.write("Visualisation de l'emprise de la zone géographique.")
-    folium_static(m)  # Utilisation de folium_static pour afficher la carte
+# Ajouter les marqueurs à la carte
+for idx, row in df.iterrows():
+    folium.Marker(
+        location=[row["@lat"], row["@lon"]],
+        popup=f"{row['name'] if row['name'] else 'Route'} (ID: {row['@id']})",
+    ).add_to(marker_cluster)
 
-    # Essayer de récupérer les données avec Overpass
-    try:
-        # Exécuter la requête
-        result = api.query(query)
-        
-        # Vérifier si des données ont été récupérées
-        if len(result.ways) == 0:
-            st.write("Aucune route nationale trouvée dans cette zone.")
-            return
-
-        st.write(f"Données récupérées: {len(result.ways)} routes trouvées.")
-        
-        # Créer un tableau avec les données des routes
-        routes_data = []
-        for way in result.ways:
-            # Ajouter le nom de la route si disponible
-            name = way.tags.get('name', 'Inconnu')
-            routes_data.append({
-                'ID': way.id,
-                'Nom': name,
-                'Nœuds': len(way.nodes)  # Nombre de nœuds (points) dans la route
-            })
-
-        # Convertir les données en DataFrame pandas
-        df = pd.DataFrame(routes_data)
-        st.write(df)  # Afficher le tableau des routes
-
-        # Estimation de la taille du fichier (en octets)
-        estimated_size = len(json.dumps(result))  # Estimation de la taille en octets (version JSON de la réponse)
-        estimated_size_kb = estimated_size / 1024  # Convertir en Ko
-        st.write(f"Estimation de la taille du fichier: {estimated_size_kb:.2f} Ko")
-
-        # Demander confirmation avant téléchargement
-        if st.button("Télécharger les données"):
-            # Exporter les données au format CSV
-            csv_file = df.to_csv(index=False)
-            st.download_button(
-                label="Télécharger les données CSV",
-                data=csv_file,
-                file_name="national_roads.csv",
-                mime="text/csv"
-            )
-
-            # Convertir en GeoJSON
-            features = []
-            for way in result.ways:
-                coordinates = [(node.lon, node.lat) for node in way.nodes]
-                features.append({
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "LineString",
-                        "coordinates": coordinates
-                    },
-                    "properties": {
-                        "ID": way.id,
-                        "Nom": way.tags.get('name', 'Inconnu')
-                    }
-                })
-
-            geojson_data = geojson.FeatureCollection(features)
-
-            # Exporter les données GeoJSON
-            geojson_file = geojson.dumps(geojson_data)
-            st.download_button(
-                label="Télécharger les données GeoJSON",
-                data=geojson_file,
-                file_name="national_roads.geojson",
-                mime="application/geo+json"
-            )
-
-    except Exception as e:
-        st.error(f"Une erreur est survenue : {e}")
-
-# Interface Streamlit pour entrer les coordonnées de la zone
-st.title("Télécharger les routes nationales")
-
-# Formulaire pour définir l'emprise de la zone (latitude et longitude)
-south_lat = st.number_input("Latitude Sud", value=5.25, step=0.01)
-west_lon = st.number_input("Longitude Ouest", value=-4.05, step=0.01)
-north_lat = st.number_input("Latitude Nord", value=5.30, step=0.01)
-east_lon = st.number_input("Longitude Est", value=-3.95, step=0.01)
-
-# Bouton pour télécharger les données avec la zone définie
-if st.button("Télécharger les routes nationales"):
-    download_national_roads(south_lat, west_lon, north_lat, east_lon)
+# Afficher la carte dans Streamlit
+st.title("Carte des Routes")
+st.markdown("Voici une carte interactive des routes avec leurs coordonnées.")
+st.dataframe(df)  # Afficher la table des routes
+st.write("Cliquez sur un marqueur pour voir le nom et l'ID de la route.")
+st.components.v1.html(m._repr_html_(), height=500)
