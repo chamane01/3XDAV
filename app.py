@@ -5,52 +5,44 @@ import json
 from shapely.geometry import shape, Point, Polygon
 from shapely.ops import transform
 import pyproj
-import random
+import hashlib
 
-# Fonction pour générer une couleur hexadécimale aléatoire
-def generate_random_color():
-    return "#{:06x}".format(random.randint(0, 0xFFFFFF))
+# Fonction pour générer une couleur unique à partir d'un ID
+def generate_color_from_id(id):
+    # Utiliser un hash pour générer une couleur unique
+    hash_object = hashlib.md5(str(id).encode())
+    hex_color = '#' + hash_object.hexdigest()[:6]
+    return hex_color
 
-# Fonction pour afficher GeoJSON avec couche colorée par ID
-def display_geojson_with_colors(file):
+# Fonction pour afficher GeoJSON et afficher la carte
+def display_geojson(file):
     geojson_data = json.load(file)
-    color_map = {}
-
-    # Générer une couleur pour chaque ID unique
-    for feature in geojson_data['features']:
-        way_id = feature['properties'].get('ID', None)  # Supposons que l'ID s'appelle "ID"
-        if way_id is not None and way_id not in color_map:
-            color_map[way_id] = generate_random_color()
-
+    
     # Créer une carte Folium centrée sur les coordonnées du fichier GeoJSON
     m = folium.Map(location=[0, 0], zoom_start=2)
 
-    # Ajouter la couche originale (en bleu)
-    folium.GeoJson(
-        geojson_data,
-        name="Couche Originale",
-        style_function=lambda feature: {"color": "blue", "weight": 2},
-        tooltip=folium.GeoJsonTooltip(fields=list(geojson_data['features'][0]['properties'].keys()), aliases=list(geojson_data['features'][0]['properties'].keys())),
-        popup=folium.GeoJsonPopup(fields=list(geojson_data['features'][0]['properties'].keys()))
-    ).add_to(m)
+    # Ajouter chaque entité avec une couleur unique basée sur son ID
+    for feature in geojson_data['features']:
+        feature_id = feature['properties'].get('id', 'default_id')  # Remplacer 'id' par la clé appropriée
+        color = generate_color_from_id(feature_id)
+        
+        folium.GeoJson(
+            feature,
+            name=f"Feature {feature_id}",
+            style_function=lambda x, color=color: {
+                'fillColor': color,
+                'color': color,
+                'weight': 2,
+                'fillOpacity': 0.5
+            },
+            tooltip=folium.GeoJsonTooltip(fields=list(feature['properties'].keys()), aliases=list(feature['properties'].keys())),
+            popup=folium.GeoJsonPopup(fields=list(feature['properties'].keys()))
+        ).add_to(m)
 
-    # Ajouter la couche colorée par ID
-    folium.GeoJson(
-        geojson_data,
-        name="Couche Colorée",
-        style_function=lambda feature: {
-            "color": color_map.get(feature['properties'].get('ID', None), "#000000"),
-            "weight": 2,
-        },
-        tooltip=folium.GeoJsonTooltip(fields=list(geojson_data['features'][0]['properties'].keys()), aliases=list(geojson_data['features'][0]['properties'].keys())),
-        popup=folium.GeoJsonPopup(fields=list(geojson_data['features'][0]['properties'].keys()))
-    ).add_to(m)
-
-    folium.LayerControl().add_to(m)
     return geojson_data, m
 
 # Interface Streamlit
-st.title("Visualiseur de fichiers GeoJSON avec Couleurs par ID")
+st.title("Visualiseur de fichiers GeoJSON")
 
 # Téléversement du fichier GeoJSON
 uploaded_file = st.file_uploader("Téléverser un fichier GeoJSON", type="geojson")
@@ -78,7 +70,7 @@ if uploaded_file:
     st.write("Fichier chargé avec succès!")
     
     # Charger et afficher le fichier GeoJSON
-    geojson_data, map_object = display_geojson_with_colors(uploaded_file)
+    geojson_data, map_object = display_geojson(uploaded_file)
 
     # Ajouter le point sur la carte
     folium.Marker([latitude, longitude], popup=f"Point Saisi: {longitude}, {latitude}").add_to(map_object)
