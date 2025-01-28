@@ -6,24 +6,18 @@ import folium
 from streamlit_folium import folium_static  # Correct import
 
 # Fonction pour récupérer les routes nationales via l'API Overpass
-def download_national_roads():
+def download_national_roads(south_lat, west_lon, north_lat, east_lon):
     # Connexion à l'API Overpass
     api = overpy.Overpass()
 
     # Requête Overpass pour récupérer les routes principales, secondaires et tertiaires
-    query = """
-    way["highway"="primary"](5.25, -4.05, 5.30, -3.95);
-    way["highway"="secondary"](5.25, -4.05, 5.30, -3.95);
-    way["highway"="tertiary"](5.25, -4.05, 5.30, -3.95);
+    query = f"""
+    way["highway"="primary"]({south_lat}, {west_lon}, {north_lat}, {east_lon});
+    way["highway"="secondary"]({south_lat}, {west_lon}, {north_lat}, {east_lon});
+    way["highway"="tertiary"]({south_lat}, {west_lon}, {north_lat}, {east_lon});
     node(w);
     out ids qt;
     """
-
-    # Définir les coordonnées de la zone
-    south_lat = 5.25
-    west_lon = -4.05
-    north_lat = 5.30
-    east_lon = -3.95
 
     # Carte pour afficher l'emprise
     map_center = [(south_lat + north_lat) / 2, (west_lon + east_lon) / 2]  # Calcul du centre de la zone
@@ -107,6 +101,15 @@ def download_national_roads():
     except Exception as e:
         st.error(f"Une erreur est survenue : {e}")
 
-# Appel de la fonction pour télécharger les routes
+# Interface Streamlit pour entrer les coordonnées de la zone
 st.title("Télécharger les routes nationales")
-download_national_roads()
+
+# Formulaire pour définir l'emprise de la zone (latitude et longitude)
+south_lat = st.number_input("Latitude Sud", value=5.25, step=0.01)
+west_lon = st.number_input("Longitude Ouest", value=-4.05, step=0.01)
+north_lat = st.number_input("Latitude Nord", value=5.30, step=0.01)
+east_lon = st.number_input("Longitude Est", value=-3.95, step=0.01)
+
+# Bouton pour télécharger les données avec la zone définie
+if st.button("Télécharger les routes nationales"):
+    download_national_roads(south_lat, west_lon, north_lat, east_lon)
