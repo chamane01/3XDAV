@@ -1,37 +1,41 @@
 import streamlit as st
-import xmltodict
+import requests
 import folium
-from io import StringIO
+from folium.plugins import MarkerCluster
 
-# Titre de l'application
-st.title("Affichage d'un fichier XML sur une carte dynamique")
+# Définir la zone géographique d'intérêt
+south, west, north, east = 5.25, -4.05, 5.3, -3.95
 
-# Téléversement du fichier XML
-uploaded_file = st.file_uploader("Téléversez votre fichier XML", type=["xml"])
+# Construire l'URL de la requête Overpass
+overpass_url = "https://overpass-api.de/api/interpreter"
+overpass_query = f"""
+<osm-script>
+  <union into="_">
+    <query type="way">
+      <has-kv k="highway" modv="" v=""/>
+      <bbox-query s="{south}" w="{west}" n="{north}" e="{east}"/>
+    </query>
+    <recurse type="way-node"/>
+  </union>
+  <print e="" from="_" geometry="skeleton" ids="yes" limit="" mode="ids_only" n="" order="quadtile" s="" w=""/>
+</osm-script>
+"""
+response = requests.get(overpass_url, params={'data': overpass_query})
+data = response.json()
 
-if uploaded_file is not None:
-    # Lecture du contenu du fichier XML
-    file_content = uploaded_file.getvalue().decode("utf-8")
-    data_dict = xmltodict.parse(file_content)
+# Créer une carte centrée sur la zone d'intérêt
+m = folium.Map(location=[(south + north) / 2, (west + east) / 2], zoom_start=14)
 
-    # Extraction des coordonnées (exemple : latitude et longitude)
-    # Adaptez cette partie en fonction de la structure de votre fichier XML
-    try:
-        latitude = float(data_dict['root']['location']['latitude'])
-        longitude = float(data_dict['root']['location']['longitude'])
-    except KeyError:
-        st.error("Le fichier XML ne contient pas les informations de latitude et de longitude.")
-        st.stop()
+# Ajouter un cluster de marqueurs
+marker_cluster = MarkerCluster().add_to(m)
 
-    # Création de la carte centrée sur les coordonnées extraites
-    map_center = [latitude, longitude]
-    m = folium.Map(location=map_center, zoom_start=12)
+# Ajouter les routes à la carte
+for element in data['elements']:
+    if element['type'] == 'way':
+        coordinates = [(node['lat'], node['lon']) for node in element['nodes']]
+        folium.PolyLine(coordinates, color='blue', weight=2.5, opacity=1).add_to(marker_cluster)
 
-    # Ajout d'un marqueur sur la carte
-    folium.Marker(location=map_center, popup="Emplacement").add_to(m)
-
-    # Affichage de la carte dans Streamlit
-    st.write("Carte générée à partir du fichier XML :")
-    st.components.v1.html(m._repr_html_(), width=700, height=500)
-else:
-    st.info("Veuillez téléverser un fichier XML pour afficher la carte.")
+# Afficher la carte dans Streamlit
+st.title("Carte des routes")
+st.markdown("Voici une carte dynamique affichant les routes dans la zone spécifiée.")
+st_folium(m, width=700, height=500)
