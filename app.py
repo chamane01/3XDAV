@@ -1,139 +1,103 @@
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
-import geopandas as gpd
-from pyproj import Transformer
-from shapely.geometry import Point
 import json
+from shapely.geometry import shape, Point, Polygon
+from shapely.ops import transform
+import pyproj
 
-st.title("Visualiseur de routes avec analyse de proximité")
+# Fonction pour afficher GeoJSON et afficher la carte
+def display_geojson(file):
+    geojson_data = json.load(file)
+    
+    # Créer une carte Folium centrée sur les coordonnées du fichier GeoJSON
+    m = folium.Map(location=[0, 0], zoom_start=2)
 
-# Téléversement du fichier GeoJSON
-uploaded_file = st.file_uploader("Téléverser un fichier GeoJSON de routes", type="geojson")
-
-if uploaded_file:
-    # Chargement et préparation des données
-    try:
-        # Lecture du GeoJSON
-        gdf = gpd.read_file(uploaded_file)
-        
-        # Vérification du système de coordonnées
-        if gdf.crs is None:
-            gdf.set_crs(epsg=4326, inplace=True)
-        else:
-            gdf = gdf.to_crs(epsg=4326)
-        
-        # Reprojection en UTM 32630 pour les calculs
-        gdf_utm = gdf.to_crs(epsg=32630)
-        
-    except Exception as e:
-        st.error(f"Erreur lors du chargement du fichier: {e}")
-        st.stop()
-
-    st.success("Fichier chargé avec succès !")
-
-    # Saisie des coordonnées UTM
-    st.subheader("Saisie des coordonnées du point")
-    col1, col2 = st.columns(2)
-    with col1:
-        easting = st.number_input("Easting (UTM 32630)", value=535157.0)
-    with col2:
-        northing = st.number_input("Northing (UTM 32630)", value=1556627.0)
-
-    # Conversion des coordonnées et analyse
-    if easting and northing:
-        try:
-            # Conversion UTM vers WGS84
-            transformer = Transformer.from_crs("EPSG:32630", "EPSG:4326")
-            lon, lat = transformer.transform(easting, northing)
-            
-            # Création des géométries pour analyse
-            point_utm = Point(easting, northing)
-            buffer_utm = point_utm.buffer(20)
-            
-            # Recherche des routes dans la zone tampon
-            routes_proches = gdf_utm[gdf_utm.intersects(buffer_utm)]
-            
-        except Exception as e:
-            st.error(f"Erreur de traitement: {e}")
-            st.stop()
-
-        # Affichage des résultats
-        st.subheader("Résultats de l'analyse")
-        if not routes_proches.empty:
-            st.success("**Le point est à moins de 20 mètres d'une route !**")
-            
-            # Affichage des propriétés des routes concernées
-            for idx, route in routes_proches.iterrows():
-                proprietes = {k: str(v) for k, v in route.items() if k != 'geometry'}  # Convertir en chaînes de caractères
-                st.write(f"**Route {idx + 1}:**")
-                st.json(proprietes)
-        else:
-            st.error("Aucune route dans un rayon de 20 mètres")
-
-    # Création de la carte
-    m = folium.Map(location=[lat if 'lat' in locals() else 45, 
-                            lon if 'lon' in locals() else 3], 
-                  zoom_start=15)
-
-    # Nettoyage des propriétés pour éviter les erreurs de sérialisation
-    def clean_properties(properties):
-        """Convertit toutes les valeurs des propriétés en chaînes de caractères."""
-        cleaned = {}
-        for k, v in properties.items():
-            if isinstance(v, (list, dict)):
-                cleaned[k] = str(v)  # Convertir les listes et dictionnaires en chaînes
-            else:
-                cleaned[k] = v
-        return cleaned
-
-    # Conversion du GeoDataFrame en GeoJSON nettoyé
-    geojson_data = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "properties": clean_properties(feature["properties"]),
-                "geometry": feature["geometry"]
-            }
-            for feature in gdf.__geo_interface__["features"]
-        ]
-    }
-
-    # Ajout des routes
     folium.GeoJson(
         geojson_data,
-        name='Routes',
-        tooltip=folium.GeoJsonTooltip(fields=list(gdf.columns)),
-        style_function=lambda x: {'color': 'darkgreen', 'weight': 3},
-        popup=folium.GeoJsonPopup(fields=list(gdf.columns))
+        name="GeoJSON",
+        tooltip=folium.GeoJsonTooltip(fields=list(geojson_data['features'][0]['properties'].keys()), aliases=list(geojson_data['features'][0]['properties'].keys())),
+        popup=folium.GeoJsonPopup(fields=list(geojson_data['features'][0]['properties'].keys()))
     ).add_to(m)
 
-    # Ajout du point et de la zone tampon
-    if easting and northing and 'lat' in locals():
-        # Marqueur du point
-        folium.Marker(
-            [lat, lon],
-            popup="Point saisi",
-            icon=folium.Icon(color='red', icon='map-marker')
-        ).add_to(m)
-        
-        # Zone tampon
-        folium.Circle(
-            location=[lat, lon],
-            radius=20,
-            color='blue',
-            fill=True,
-            fill_opacity=0.2,
-            popup="Zone tampon 20m"
-        ).add_to(m)
+    return geojson_data, m
 
-        # Ajustement de la vue
-        m.fit_bounds([[lat, lon], [lat, lon]])
+# Interface Streamlit
+st.title("Visualiseur de fichiers GeoJSON")
 
-    # Affichage de la carte
-    st.subheader("Visualisation cartographique")
-    st_folium(m, width=700, height=500)
+# Téléversement du fichier GeoJSON
+uploaded_file = st.file_uploader("Téléverser un fichier GeoJSON", type="geojson")
 
+# Saisie manuelle des coordonnées
+utm_zone = 32630
+utm_proj = pyproj.CRS(f"EPSG:{utm_zone}").to_proj4()
+utm_to_wgs84 = pyproj.CRS("EPSG:4326").to_proj4()
+
+# Saisie des coordonnées UTM
+st.subheader("Saisissez les coordonnées UTM (Zone 30N)")
+easting = st.number_input("Easting (X)", value=500000, step=1)
+northing = st.number_input("Northing (Y)", value=4500000, step=1)
+
+# Transformer les coordonnées UTM en WGS84 (longitude, latitude)
+point_utm = Point(easting, northing)
+transformer = pyproj.Transformer.from_proj(utm_proj, utm_to_wgs84)
+longitude, latitude = transformer.transform(point_utm.x, point_utm.y)
+
+# Afficher le point sur la carte
+st.write(f"Coordonnées UTM : ({easting}, {northing})")
+st.write(f"Coordonnées WGS84 : ({longitude}, {latitude})")
+
+# Ajouter le point sur la carte
+if uploaded_file:
+    st.write("Fichier chargé avec succès!")
+    
+    # Charger et afficher le fichier GeoJSON
+    geojson_data, map_object = display_geojson(uploaded_file)
+
+    # Ajouter le point sur la carte
+    folium.Marker([latitude, longitude], popup=f"Point Saisi: {longitude}, {latitude}").add_to(map_object)
+
+    # Calcul du tampon de 20m autour du point (en UTM 32630)
+    buffer = point_utm.buffer(20)  # 20m autour du point
+    
+    # Transformer le tampon en WGS84 pour l'affichage
+    transformer_for_display = pyproj.Transformer.from_proj(utm_proj, utm_to_wgs84)
+    buffer_wgs84 = transform(transformer_for_display.transform, buffer)  # Transformer en WGS84 pour affichage
+    geo_buffer = Polygon(buffer_wgs84)
+    
+    # Convertir la géométrie en GeoJSON
+    geojson_buffer = geo_buffer.__geo_interface__
+    
+    # Ajouter le tampon à la carte
+    folium.GeoJson(geojson_buffer).add_to(map_object)
+
+    # Analyser l'intersection du point et des routes
+    st.subheader("Vérification de la proximité avec une route")
+    point_within_buffer = False
+    route_name = None
+
+    # Analyser les caractéristiques du fichier GeoJSON
+    for feature in geojson_data['features']:
+        geom = shape(feature['geometry'])
+
+        # Reprojection de la géométrie du GeoJSON en WGS84 si nécessaire
+        if geom.crs != "EPSG:4326":
+            geom = transform(transformer_for_display.transform, geom)
+
+        # Vérification de l'intersection avec le tampon
+        if geom.intersects(buffer):  # Le point est proche d'une route si une intersection est détectée
+            point_within_buffer = True
+            if 'name' in feature['properties']:
+                route_name = feature['properties']['name']
+            break
+
+    # Afficher les résultats de l'analyse
+    if point_within_buffer:
+        if route_name:
+            st.write(f"Le point est proche de la route : {route_name}")
+        else:
+            st.write("Le point est proche d'une route, mais son nom est inconnu.")
+    else:
+        st.write("Le point n'est pas proche d'une route.")
 else:
-    st.info("Veuillez téléverser un fichier GeoJSON contenant des routes")
+    st.write("Téléversez un fichier GeoJSON pour continuer.")
