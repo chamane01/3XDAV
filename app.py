@@ -6,7 +6,7 @@ from shapely.geometry import shape, mapping, Point
 import pyproj
 from shapely.ops import transform
 from shapely.geometry import Polygon
-from geojson import Point as geojsonPoint
+import geojson
 
 def display_geojson(file, utm_proj=None):
     # Charger le fichier GeoJSON
@@ -73,7 +73,7 @@ if uploaded_file:
 
     # Calcul du tampon de 20m autour du point
     buffer = point_utm.buffer(20)  # 20m autour du point
-    buffer_wgs84 = transform(transformer, buffer)  # Transformer en WGS84 pour affichage
+    buffer_wgs84 = transform(transformer.transform, buffer)  # Transformer en WGS84 pour affichage
     geo_buffer = Polygon(buffer_wgs84)
     geojson_buffer = geo_buffer.__geo_interface__
     
@@ -82,7 +82,6 @@ if uploaded_file:
     
     # Vérification si une route est à proximité
     st.subheader("Vérification de la proximité avec une route")
-    # Vérifier la proximité avec une route
     # Cette logique dépend de l'analyse de la couche GeoJSON des routes
     if st_data and st_data['last_active_drawing']:  
         route_info = st_data['last_active_drawing']
