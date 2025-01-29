@@ -3,7 +3,6 @@ import folium
 import random
 import json
 from streamlit_folium import st_folium
-from io import BytesIO
 
 # Charger les données des routes à partir du fichier JSON
 with open("routeQSD.txt", "r") as f:
@@ -31,7 +30,6 @@ routes_ci = []
 for feature in routes_data["features"]:
     if feature["geometry"]["type"] == "LineString":
         routes_ci.append({
-            "route": feature["properties"]["ID"],
             "coords": feature["geometry"]["coordinates"]
         })
 
@@ -45,7 +43,6 @@ def generer_degradations():
         coord = random.choice(route["coords"])
         lon, lat = coord[0] + random.uniform(-0.0005, 0.0005), coord[1] + random.uniform(-0.0005, 0.0005)
         data.append({
-            "route": route["route"],
             "categorie": categorie,
             "gravite": gravite,
             "lat": lat,
@@ -67,39 +64,6 @@ if "degradations" not in st.session_state:
 
 data = st.session_state.degradations
 
-# Création des fichiers de téléchargement
-def create_downloadable_files(data):
-    geojson_data = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [d["lon"], d["lat"]]
-                },
-                "properties": {
-                    "route": d["route"],
-                    "categorie": d["categorie"],
-                    "gravite": d["gravite"]
-                }
-            } for d in data
-        ]
-    }
-
-    json_str = json.dumps(data, indent=4)
-    geojson_str = json.dumps(geojson_data, indent=4)
-    
-    json_bytes = BytesIO(json_str.encode('utf-8'))
-    geojson_bytes = BytesIO(geojson_str.encode('utf-8'))
-    
-    return json_bytes, geojson_bytes
-
-json_file, geojson_file = create_downloadable_files(data)
-
-st.download_button("Télécharger les dégradations en JSON", json_file, "degradations.json", "application/json")
-st.download_button("Télécharger les dégradations en GeoJSON", geojson_file, "degradations.geojson", "application/geo+json")
-
 # Initialisation de la carte Folium
 m = folium.Map(location=[6.5, -5], zoom_start=7)
 
@@ -109,8 +73,7 @@ for route in routes_ci:
         locations=[(lat, lon) for lon, lat in route["coords"]],
         color="blue",
         weight=3,
-        opacity=0.7,
-        tooltip=route["route"]
+        opacity=0.7
     ).add_to(m)
 
 # Ajout des marqueurs sous forme de petits cercles pleins
@@ -122,9 +85,37 @@ for d in data:
         color=couleur,
         fill=True,
         fill_color=couleur,
-        popup=f"Catégorie: {d['categorie']}\nGravité: {d['gravite']}\nRoute: {d['route']}",
+        popup=f"Catégorie: {d['categorie']}\nGravité: {d['gravite']}",
         tooltip=f"{d['categorie']} (Gravité {d['gravite']})"
     ).add_to(m)
 
 # Affichage de la carte dans Streamlit
 st_folium(m, width=800, height=600)
+
+# Fonction pour télécharger les données en JSON
+def telecharger_json():
+    return json.dumps(data, indent=4)
+
+# Fonction pour télécharger les données en GeoJSON
+def telecharger_geojson():
+    geojson_data = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [d["lon"], d["lat"]]
+                },
+                "properties": {
+                    "categorie": d["categorie"],
+                    "gravite": d["gravite"]
+                }
+            } for d in data
+        ]
+    }
+    return json.dumps(geojson_data, indent=4)
+
+# Boutons de téléchargement
+st.download_button("Télécharger JSON", telecharger_json(), "degradations.json", "application/json")
+st.download_button("Télécharger GeoJSON", telecharger_geojson(), "degradations.geojson", "application/geo+json")
