@@ -1,91 +1,79 @@
 import streamlit as st
 import folium
-import random
 from streamlit_folium import st_folium
+import random
 
-# Définition des catégories de dégradations et niveaux de gravité
-defauts = {
-    "Déformation Orniérage": "red",
-    "Fissure de Fatigue": "blue",
-    "Faïençage de Fatigue": "green",
-    "Fissure de Retrait": "orange",
-    "Fissure Anarchique": "purple",
-    "Réparation": "pink",
-    "Nid de Poule": "brown",
-    "Arrachements": "gray",
-    "Fluage": "cyan",
-    "Dénivellement Accotement": "yellow",
-    "Chaussée Détruite": "black",
-    "Envahissement Végétation": "darkgreen",
-    "Assainissement": "lightblue"
+# Liste des catégories de dégradations routières et niveaux de gravité
+degradations = {
+    "déformation orniérage": "red",
+    "fissure de fatigue": "blue",
+    "faïençage de fatigue": "green",
+    "fissure de retrait": "purple",
+    "fissure anarchique": "orange",
+    "réparation": "pink",
+    "nid de poule": "brown",
+    "arrachements": "gray",
+    "fluage": "yellow",
+    "dénivellement accotement": "cyan",
+    "chaussée détruite": "black",
+    "envahissement végétation": "magenta",
+    "assainissement": "teal"
 }
 
-# Création de la base de données virtuelle des défauts
-base_donnees = []
+# Routes de Côte d'Ivoire concernées
+routes_ci = [
+    {"route": "Autoroute du Nord", "lat": 6.871, "lon": -5.276},
+    {"route": "Route de Dabou", "lat": 5.325, "lon": -4.105},
+    {"route": "Route d'Aboisso", "lat": 5.728, "lon": -3.207},
+    {"route": "A1", "lat": 6.877, "lon": -5.233},
+    {"route": "A2", "lat": 6.745, "lon": -4.842},
+    {"route": "A3", "lat": 6.134, "lon": -5.365}
+]
+
+# Génération de 100 dégradations aléatoires
+data = []
 for _ in range(100):
-    categorie = random.choice(list(defauts.keys()))
+    route = random.choice(routes_ci)
+    categorie = random.choice(list(degradations.keys()))
     gravite = random.randint(1, 3)
-    lat = random.uniform(-90, 90)  # Coordonnées latitude aléatoires
-    lon = random.uniform(-180, 180)  # Coordonnées longitude aléatoires
-    base_donnees.append({
+    data.append({
+        "route": route["route"],
         "categorie": categorie,
         "gravite": gravite,
-        "lat": lat,
-        "lon": lon,
-        "couleur": defauts[categorie]
+        "lat": route["lat"] + random.uniform(-0.05, 0.05),
+        "lon": route["lon"] + random.uniform(-0.05, 0.05)
     })
 
-# Fonction pour ajuster la teinte selon la gravité
-def get_color(couleur_base, gravite):
-    if gravite == 1:
-        return couleur_base
-    elif gravite == 2:
-        return couleur_base + "4D"  # Ajout d'une transparence
-    elif gravite == 3:
-        return couleur_base + "99"  # Plus clair
-
 # Configuration de l'application Streamlit
-st.title("Dégradations Routières : Carte des Inspections Virtuelles")
-st.write("Cliquez sur un marqueur pour voir les détails du défaut.")
+st.title("Carte des dégradations routières en Côte d'Ivoire")
+st.write("Cliquez sur un marqueur pour voir les détails de la dégradation.")
 
 # Initialisation de la carte Folium
-m = folium.Map(location=[0, 0], zoom_start=2)
+m = folium.Map(location=[6.5, -5], zoom_start=7)
 
-# Ajout des marqueurs pour chaque défaut
-for defaut in base_donnees:
-    tooltip = f"{defaut['categorie']} (Gravité {defaut['gravite']})"
+# Ajout des marqueurs sur la carte
+for d in data:
+    couleur_base = degradations[d["categorie"]]
+    couleur = {
+        1: couleur_base + "33",  # Teinte claire pour gravité 1
+        2: couleur_base + "66",  # Teinte intermédiaire pour gravité 2
+        3: couleur_base           # Teinte forte pour gravité 3
+    }[d["gravite"]]
+    tooltip = f"{d['categorie']} (Gravité {d['gravite']})"
     popup_content = f"""
-    <b>Catégorie :</b> {defaut['categorie']}<br>
-    <b>Niveau de Gravité :</b> {defaut['gravite']}<br>
-    <b>Latitude :</b> {defaut['lat']:.2f}, <b>Longitude :</b> {defaut['lon']:.2f}
+    <b>Catégorie :</b> {d['categorie']}<br>
+    <b>Route :</b> {d['route']}<br>
+    <b>Gravité :</b> {d['gravite']}
     """
-    folium.Marker(
-        location=[defaut['lat'], defaut['lon']],
+    folium.CircleMarker(
+        location=[d["lat"], d["lon"]],
+        radius=5 + d["gravite"],
+        color=couleur,
+        fill=True,
+        fill_color=couleur,
         popup=popup_content,
-        tooltip=tooltip,
-        icon=folium.Icon(color=defaut['couleur'])
+        tooltip=tooltip
     ).add_to(m)
-
-# Génération de la légende
-legend_html = """
-<div style="
-    position: fixed;
-    bottom: 50px;
-    left: 50px;
-    width: 200px;
-    height: auto;
-    background-color: white;
-    border:2px solid grey;
-    z-index:9999;
-    font-size:12px;
-    padding:10px;
-    ">
-    <b>Légende</b><br>
-"""
-for categorie, couleur in defauts.items():
-    legend_html += f"&nbsp;<i class='fa fa-map-marker fa-2x' style='color:{couleur}'></i> {categorie}<br>"
-legend_html += "</div>"
-m.get_root().html.add_child(folium.Element(legend_html))
 
 # Affichage de la carte dans Streamlit
 st_folium(m, width=800, height=600)
