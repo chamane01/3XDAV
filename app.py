@@ -69,6 +69,29 @@ data = st.session_state.degradations
 # Initialisation de la carte Folium
 m = folium.Map(location=[6.5, -5], zoom_start=7)
 
+# Création de la légende
+legend_html = '''
+     <div style="
+         position: fixed;
+         bottom: 50px;
+         right: 50px;
+         width: 180px;
+         height: auto;
+         background-color: white;
+         border: 2px solid grey;
+         z-index: 9999;
+         font-size: 14px;
+         padding: 10px;
+     ">
+         <b style="text-decoration: underline;">Légende des Dégradations</b><br>
+         {}
+     </div>
+'''.format('<br>'.join([f'<i style="background:{color}; width: 15px; height: 15px; display: inline-block;"></i> {name}' 
+                      for name, color in degradations.items()]))
+
+# Ajouter la légende à la carte
+m.get_root().html.add_child(folium.Element(legend_html))
+
 # Ajouter les routes sous forme de lignes
 for route in routes_ci:
     folium.PolyLine(
