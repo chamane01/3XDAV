@@ -3,6 +3,19 @@ import folium
 import json
 from streamlit_folium import st_folium
 
+# Charger les données des routes à partir du fichier JSON
+with open("routeQSD.txt", "r") as f:
+    routes_data = json.load(f)
+
+
+# Extraire les coordonnées des routes sous forme de LineStrings
+routes_ci = []
+for feature in routes_data["features"]:
+    if feature["geometry"]["type"] == "LineString":
+        routes_ci.append({
+            "coords": feature["geometry"]["coordinates"]
+        })
+
 # Définition des catégories de dégradations et niveaux de gravité
 degradations = {
     "déformation orniérage": "red",
@@ -47,6 +60,15 @@ st.write("Cliquez sur un marqueur pour voir les détails de la dégradation.")
 
 # Initialisation de la carte Folium
 m = folium.Map(location=[6.5, -5], zoom_start=7)
+
+# Ajouter les routes sous forme de lignes
+for route in routes_ci:
+    folium.PolyLine(
+        locations=[(lat, lon) for lon, lat in route["coords"]],
+        color="blue",
+        weight=3,
+        opacity=0.7
+    ).add_to(m)
 
 # Ajout des points de dégradations si les données sont valides
 if data:
