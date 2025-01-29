@@ -2,96 +2,80 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import json
-from shapely.geometry import shape, Point, Polygon, mapping
+from shapely.geometry import shape, mapping
 from shapely.ops import transform
 import pyproj
 
-# Fonction pour charger et afficher un GeoJSON
-def display_geojson(file):
-    geojson_data = json.load(file)
-    
-    # Créer une carte centrée
-    m = folium.Map(location=[0, 0], zoom_start=2)
-    folium.GeoJson(
-        geojson_data,
-        name="GeoJSON",
-        tooltip=folium.GeoJsonTooltip(fields=list(geojson_data['features'][0]['properties'].keys()), aliases=list(geojson_data['features'][0]['properties'].keys())),
-        popup=folium.GeoJsonPopup(fields=list(geojson_data['features'][0]['properties'].keys()))
-    ).add_to(m)
-
-    return geojson_data, m
-
-# Initialisation de Streamlit
-st.title("Analyse de proximité avec des routes (avec projections UTM)")
-uploaded_file = st.file_uploader("Téléverser un fichier GeoJSON des routes", type="geojson")
-
-# Entrée utilisateur pour les coordonnées UTM
-st.subheader("Saisissez les coordonnées UTM (Zone 30N)")
-easting = st.number_input("Easting (X)", value=500000, step=1)
-northing = st.number_input("Northing (Y)", value=4500000, step=1)
+# Fonction pour charger un GeoJSON
+def load_geojson(file):
+    try:
+        return json.load(file)
+    except json.JSONDecodeError:
+        st.error("Erreur : Le fichier téléversé n'est pas un GeoJSON valide.")
+        return None
 
 # Définition des systèmes de coordonnées
 utm_zone = 32630  # EPSG:32630 (Zone UTM 30N)
 utm_crs = pyproj.CRS(f"EPSG:{utm_zone}")
 wgs84_crs = pyproj.CRS("EPSG:4326")
-
-# Transformer les coordonnées UTM vers WGS84 pour l'affichage
+transformer_to_utm = pyproj.Transformer.from_crs(wgs84_crs, utm_crs, always_xy=True)
 transformer_to_wgs84 = pyproj.Transformer.from_crs(utm_crs, wgs84_crs, always_xy=True)
-longitude, latitude = transformer_to_wgs84.transform(easting, northing)
 
-# Afficher les coordonnées transformées
-st.write(f"Coordonnées UTM : ({easting}, {northing})")
-st.write(f"Coordonnées WGS84 : ({longitude}, {latitude})")
+# Interface Streamlit
+st.title("Analyse de proximité des sections de route")
 
-# Création d'un point à partir des coordonnées UTM
-point_utm = Point(easting, northing)
+# Téléversement des fichiers GeoJSON
+route_file = st.file_uploader("Téléverser le fichier GeoJSON des routes", type="geojson")
+section_file = st.file_uploader("Téléverser le fichier GeoJSON des sections de route", type="geojson")
 
-if uploaded_file:
-    # Charger le fichier GeoJSON
-    geojson_data, map_object = display_geojson(uploaded_file)
-
-    # Ajouter le point sur la carte pour l'affichage
-    folium.Marker([latitude, longitude], popup=f"Point Saisi: {longitude}, {latitude}").add_to(map_object)
-    map_object.location = [latitude, longitude]
-    map_object.zoom_start = 15
-
-    # Création d'un tampon de 20m en UTM
-    buffer_utm = point_utm.buffer(20)  # Rayon de 20m
-    st.write("Tampon (20m) créé autour du point (en UTM).")
-
-    # Transformer le tampon en WGS84 pour l'affichage
-    transformer_to_wgs84 = pyproj.Transformer.from_crs(utm_crs, wgs84_crs, always_xy=True)
-    buffer_wgs84 = transform(transformer_to_wgs84.transform, buffer_utm)
-
-    # Ajouter le tampon à la carte
-    folium.GeoJson(mapping(buffer_wgs84), name="Tampon 20m").add_to(map_object)
-
-    # Initialisation de l'analyse
-    st.subheader("Analyse d'intersection")
-    point_within_buffer = False
-    route_name = None
-
-    # Préparer la transformation WGS84 -> UTM pour les géométries des routes
-    transformer_to_utm = pyproj.Transformer.from_crs(wgs84_crs, utm_crs, always_xy=True)
-
-    # Analyse des intersections avec les routes
-    for feature in geojson_data['features']:
-        geom_wgs84 = shape(feature['geometry'])  # Géométrie en WGS84
-        geom_utm = transform(transformer_to_utm.transform, geom_wgs84)  # Reprojection en UTM
-
-        # Vérification de l'intersection avec le tampon
-        if geom_utm.intersects(buffer_utm):
-            point_within_buffer = True
-            route_name = feature['properties'].get('name', 'Nom inconnu')
-            break
-
-    # Afficher les résultats
-    if point_within_buffer:
-        st.write(f"Le point est proche de la route : {route_name}")
-    else:
-        st.write("Le point n'est pas proche d'une route.")
-
-    # Afficher la carte dans Streamlit
-    st_folium(map_object, width=800, height=600)
+if route_file and section_file:
+    routes_geojson = load_geojson(route_file)
+    sections_geojson = load_geojson(section_file)
+    
+    if routes_geojson and sections_geojson:
+        # Chargement des routes en UTM
+        routes_utm = []
+        for feature in routes_geojson["features"]:
+            geom_wgs84 = shape(feature["geometry"])
+            geom_utm = transform(transformer_to_utm.transform, geom_wgs84)
+            route_name = feature["properties"].get("name", "Inconnue")  # Assurez-vous que 'name' est bien la clé du nom de route
+            routes_utm.append((geom_utm, route_name))
+        
+        # Création du nouveau GeoJSON modifié
+        new_sections_geojson = {"type": "FeatureCollection", "features": []}
+        
+        # Analyse des sections et attribution du nom de la route
+        for section in sections_geojson["features"]:
+            section_geom_wgs84 = shape(section["geometry"])
+            section_geom_utm = transform(transformer_to_utm.transform, section_geom_wgs84)
+            
+            # Création d'un tampon de 20m
+            buffer_utm = section_geom_utm.buffer(20)
+            
+            # Recherche de la route la plus proche
+            closest_route_name = "Inconnue"
+            for route_geom, route_name in routes_utm:
+                if route_geom.intersects(buffer_utm):
+                    closest_route_name = route_name
+                    break
+            
+            # Modification de l'ID avec le nom de la route
+            section["properties"]["ID"] = closest_route_name
+            new_sections_geojson["features"].append(section)
+        
+        # Téléchargement du nouveau fichier GeoJSON
+        st.subheader("Télécharger le GeoJSON modifié")
+        new_geojson_str = json.dumps(new_sections_geojson, indent=2)
+        st.download_button(
+            label="Télécharger le fichier modifié",
+            data=new_geojson_str,
+            file_name="sections_modifiees.geojson",
+            mime="application/json"
+        )
+        
+        # Affichage de la carte
+        m = folium.Map(location=[0, 0], zoom_start=2)
+        folium.GeoJson(new_sections_geojson, name="Sections Modifiées").add_to(m)
+        st_folium(m, width=800, height=600)
 else:
-    st.write("Veuillez téléverser un fichier GeoJSON pour analyser.")
+    st.write("Veuillez téléverser les fichiers GeoJSON des routes et sections.")
