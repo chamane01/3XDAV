@@ -1,18 +1,23 @@
-import streamlit as st
+import streamlit as st 
 import folium
 from streamlit_folium import st_folium
 import json
 from shapely.geometry import shape, mapping
 from shapely.ops import transform
 import pyproj
+import io
 
-# Fonction pour charger un GeoJSON
+# Fonction pour charger et afficher un GeoJSON
 def load_geojson(file):
     try:
         return json.load(file)
     except json.JSONDecodeError:
         st.error("Erreur : Le fichier téléversé n'est pas un GeoJSON valide.")
         return None
+
+# Fonction pour convertir les géométries en UTM
+def convert_to_utm(geometry, transformer):
+    return transform(transformer.transform, geometry)
 
 # Définition des systèmes de coordonnées
 utm_zone = 32630  # EPSG:32630 (Zone UTM 30N)
@@ -33,49 +38,59 @@ if route_file and section_file:
     sections_geojson = load_geojson(section_file)
     
     if routes_geojson and sections_geojson:
+        # Création de la carte
+        m = folium.Map(location=[0, 0], zoom_start=2)
+        
         # Chargement des routes en UTM
         routes_utm = []
         for feature in routes_geojson["features"]:
             geom_wgs84 = shape(feature["geometry"])
-            geom_utm = transform(transformer_to_utm.transform, geom_wgs84)
-            route_name = feature["properties"].get("name", "Inconnue")  # Assurez-vous que 'name' est bien la clé du nom de route
+            geom_utm = convert_to_utm(geom_wgs84, transformer_to_utm)
+            route_name = list(feature["properties"].values())[1]  # Colonne du milieu
             routes_utm.append((geom_utm, route_name))
+            folium.GeoJson(feature["geometry"], tooltip=route_name).add_to(m)
         
-        # Création du nouveau GeoJSON modifié
-        new_sections_geojson = {"type": "FeatureCollection", "features": []}
+        # Création du nouveau GeoJSON
+        new_sections = {"type": "FeatureCollection", "features": []}
         
-        # Analyse des sections et attribution du nom de la route
         for section in sections_geojson["features"]:
             section_geom_wgs84 = shape(section["geometry"])
-            section_geom_utm = transform(transformer_to_utm.transform, section_geom_wgs84)
+            section_geom_utm = convert_to_utm(section_geom_wgs84, transformer_to_utm)
             
-            # Création d'un tampon de 20m
-            buffer_utm = section_geom_utm.buffer(20)
-            
-            # Recherche de la route la plus proche
-            closest_route_name = "Inconnue"
-            for route_geom, route_name in routes_utm:
-                if route_geom.intersects(buffer_utm):
-                    closest_route_name = route_name
+            # Recherche de la route la plus proche avec un rayon progressif
+            closest_route = None
+            for radius in [10, 50, 100, 200, 500, 1000]:
+                buffer_utm = section_geom_utm.buffer(radius)
+                
+                for route_geom, route_name in routes_utm:
+                    if route_geom.intersects(buffer_utm):
+                        closest_route = route_name
+                        break
+                if closest_route:
                     break
             
-            # Modification de l'ID avec le nom de la route
-            section["properties"]["ID"] = closest_route_name
-            new_sections_geojson["features"].append(section)
+            if closest_route:
+                new_feature = {
+                    "type": "Feature",
+                    "properties": {"ID": closest_route},
+                    "geometry": mapping(section_geom_wgs84)
+                }
+                new_sections["features"].append(new_feature)
         
-        # Téléchargement du nouveau fichier GeoJSON
-        st.subheader("Télécharger le GeoJSON modifié")
-        new_geojson_str = json.dumps(new_sections_geojson, indent=2)
+        # Génération du fichier téléchargeable
+        geojson_str = json.dumps(new_sections, indent=2)
+        geojson_bytes = io.BytesIO()
+        geojson_bytes.write(geojson_str.encode('utf-8'))
+        geojson_bytes.seek(0)
+        
         st.download_button(
-            label="Télécharger le fichier modifié",
-            data=new_geojson_str,
+            label="Télécharger le fichier GeoJSON modifié",
+            data=geojson_bytes,
             file_name="sections_modifiees.geojson",
             mime="application/json"
         )
         
         # Affichage de la carte
-        m = folium.Map(location=[0, 0], zoom_start=2)
-        folium.GeoJson(new_sections_geojson, name="Sections Modifiées").add_to(m)
         st_folium(m, width=800, height=600)
 else:
     st.write("Veuillez téléverser les fichiers GeoJSON des routes et sections.")
