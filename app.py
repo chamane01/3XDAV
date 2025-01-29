@@ -79,18 +79,45 @@ for route in routes_ci:
         tooltip=route["route"]
     ).add_to(m)
 
-# Ajout des marqueurs sous forme de petits cercles pleins
+# Ajout des points sous forme de simples ronds avec tailles différentes
 for d in data:
     couleur = degradations[d["categorie"]]
-    folium.CircleMarker(
+    folium.Circle(
         location=[d["lat"], d["lon"]],
-        radius=4 + d["gravite"],
+        radius=3 + d["gravite"] * 2,
         color=couleur,
         fill=True,
         fill_color=couleur,
         popup=f"Catégorie: {d['categorie']}\nGravité: {d['gravite']}\nRoute: {d['route']}",
         tooltip=f"{d['categorie']} (Gravité {d['gravite']})"
     ).add_to(m)
+
+# Ajout de la légende en bas à droite
+legend_html = """
+<div style="
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 250px;
+    background-color: white;
+    border: 2px solid black;
+    z-index:9999;
+    padding: 10px;
+    font-size: 12px;
+">
+    <b>Légende</b><br>
+"""
+for cat, color in degradations.items():
+    legend_html += f"<div style='display: flex; align-items: center;'><div style='width: 15px; height: 15px; background:{color}; margin-right: 5px;'></div>{cat}</div>"
+legend_html += """
+    <br>
+    <b>Niveaux de Gravité</b><br>
+    <div style='display: flex; align-items: center;'><div style='width: 10px; height: 10px; background:black; margin-right: 5px;'></div>Niveau 1</div>
+    <div style='display: flex; align-items: center;'><div style='width: 15px; height: 15px; background:black; margin-right: 5px;'></div>Niveau 2</div>
+    <div style='display: flex; align-items: center;'><div style='width: 20px; height: 20px; background:black; margin-right: 5px;'></div>Niveau 3</div>
+</div>
+"""
+m.get_root().html.add_child(folium.Element(legend_html))
 
 # Affichage de la carte dans Streamlit
 st_folium(m, width=800, height=600)
