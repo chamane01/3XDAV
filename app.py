@@ -13,7 +13,7 @@ for feature in routes_data["features"]:
     if feature["geometry"]["type"] == "LineString":
         routes_ci.append({
             "coords": feature["geometry"]["coordinates"],
-            "nom": feature["properties"].get("nom", "Route inconnue")  # Récupérer le nom de la route
+            "nom": feature["properties"].get("ID", "Route inconnue")  # Récupération correcte du nom
         })
 
 # Définition des catégories de dégradations et niveaux de gravité
@@ -68,7 +68,7 @@ for route in routes_ci:
         color="blue",
         weight=3,
         opacity=0.7,
-        tooltip=route["nom"]  # Ajout du tooltip avec le nom de la route
+        tooltip=route["nom"]  # Affichage du vrai nom de la route
     ).add_to(m)
 
 # Ajout des points de dégradations si les données sont valides
