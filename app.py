@@ -1,8 +1,12 @@
 import streamlit as st
 import folium
 import random
-import time
+import json
 from streamlit_folium import st_folium
+
+# Charger les données des routes à partir du fichier JSON
+with open("routeQSD.txt", "r") as f:
+    routes_data = json.load(f)
 
 # Définition des catégories de dégradations et niveaux de gravité
 degradations = {
@@ -21,15 +25,16 @@ degradations = {
     "assainissement": "teal"
 }
 
-# Coordonnées des routes adaptées en Côte d'Ivoire
-routes_ci = [
-    {"route": "BVD lagunaire", "coords": [[-4.0113663, 5.3187904], [-4.0127054, 5.3179905]]},
-    {"route": "A100(port-bouet, bassam)", "coords": [[-3.9009539, 5.2400795], [-3.9440652, 5.2469259]]},
-    {"route": "BVD de la paix", "coords": [[-4.0192387, 5.3095622], [-4.0192237, 5.3092212]]},
-    {"route": "A3(abidjan-yamoussoukro)", "coords": [[-4.0016795, 5.3555151], [-4.0047339, 5.3550991]]},
-]
+# Extraire les coordonnées des routes sous forme de LineStrings
+routes_ci = []
+for feature in routes_data["features"]:
+    if feature["geometry"]["type"] == "LineString":
+        routes_ci.append({
+            "route": feature["properties"]["ID"],
+            "coords": feature["geometry"]["coordinates"]
+        })
 
-# Fonction pour générer des dégradations aléatoires
+# Fonction pour générer des dégradations aléatoires sur les routes
 def generer_degradations():
     data = []
     for _ in range(100):
@@ -37,7 +42,7 @@ def generer_degradations():
         categorie = random.choice(list(degradations.keys()))
         gravite = random.randint(1, 3)
         coord = random.choice(route["coords"])
-        lat, lon = coord[1] + random.uniform(-0.001, 0.001), coord[0] + random.uniform(-0.001, 0.001)
+        lon, lat = coord[0] + random.uniform(-0.0005, 0.0005), coord[1] + random.uniform(-0.0005, 0.0005)
         data.append({
             "route": route["route"],
             "categorie": categorie,
@@ -54,7 +59,6 @@ st.write("Cliquez sur un marqueur pour voir les détails de la dégradation.")
 # Bouton pour rafraîchir les données
 if st.button("Rafraîchir les dégradations"):
     st.session_state.degradations = generer_degradations()
-    time.sleep(1)
 
 # Générer les données si elles n'existent pas déjà
 if "degradations" not in st.session_state:
@@ -64,6 +68,16 @@ data = st.session_state.degradations
 
 # Initialisation de la carte Folium
 m = folium.Map(location=[6.5, -5], zoom_start=7)
+
+# Ajouter les routes sous forme de lignes
+for route in routes_ci:
+    folium.PolyLine(
+        locations=[(lat, lon) for lon, lat in route["coords"]],
+        color="blue",
+        weight=3,
+        opacity=0.7,
+        tooltip=route["route"]
+    ).add_to(m)
 
 # Ajout des marqueurs sous forme de petits cercles pleins
 for d in data:
