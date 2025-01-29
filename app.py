@@ -69,7 +69,7 @@ if uploaded_file:
     # Initialisation de l'analyse
     st.subheader("Analyse d'intersection")
     point_within_buffer = False
-    route_id = None
+    route_name = "Nom inconnu"
 
     # Préparer la transformation WGS84 -> UTM pour les géométries des routes
     transformer_to_utm = pyproj.Transformer.from_crs(wgs84_crs, utm_crs, always_xy=True)
@@ -82,12 +82,12 @@ if uploaded_file:
         # Vérification de l'intersection avec le tampon
         if geom_utm.intersects(buffer_utm):
             point_within_buffer = True
-            route_id = feature['properties'].get('id', 'ID inconnu')  # Récupérer l'ID de la route
+            route_name = feature['properties'].get('ID', 'Nom inconnu')
             break
 
     # Afficher les résultats
     if point_within_buffer:
-        st.write(f"Le point est proche de la route ID : {route_id}")
+        st.write(f"Le point est proche de la route : {route_name}")
     else:
         st.write("Le point n'est pas proche d'une route.")
 
