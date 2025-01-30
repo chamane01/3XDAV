@@ -79,7 +79,7 @@ degradations = {
 st.title("📊 AGEROUTE (Application de Gestion des Routes)")
 
 # Sidebar pour la navigation
-st.sidebar.title("🚀 Navigation")
+st.sidebar.title("🌍 Navigation")
 selection = st.sidebar.radio("Choisir une section", ["📋 Tableau de Bord des Dégradations", "📂 Gestion des Missions"])
 
 # Si l'utilisateur choisit "Gestion des Missions"
