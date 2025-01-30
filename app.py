@@ -76,23 +76,23 @@ degradations = {
 }
 
 # Initialisation de l'application Streamlit
-st.title("Interface de Gestion des Missions et Dégradations Routières")
+st.title("📊 AGEROUTE (Application de Gestion des Routes)")
 
 # Sidebar pour la navigation
-st.sidebar.title("Navigation")
-selection = st.sidebar.radio("Choisir une section", ["Gestion des Missions", "Tableau de Bord des Dégradations"])
+st.sidebar.title("🚀 Navigation")
+selection = st.sidebar.radio("Choisir une section", ["📋 Tableau de Bord des Dégradations", "📂 Gestion des Missions"])
 
 # Si l'utilisateur choisit "Gestion des Missions"
-if selection == "Gestion des Missions":
-    st.subheader("Gestion des Missions")
+if selection == "📂 Gestion des Missions":
+    st.subheader("📂 Gestion des Missions")
 
     # Afficher les missions
-    st.subheader("Liste des Missions")
+    st.subheader("📋 Liste des Missions")
     missions_df = get_missions()
     st.write(missions_df)
 
     # Ajouter une nouvelle mission
-    st.subheader("Ajouter une Mission")
+    st.subheader("➕ Ajouter une Mission")
     with st.form(key='add_mission_form'):
         id_mission = st.text_input("ID Mission")
         type_mission = st.selectbox("Type de Mission", ["drone", "voiture", "manuelle", "mixte"])
@@ -105,29 +105,29 @@ if selection == "Gestion des Missions":
         operateur = st.text_input("Opérateur")
         observations = st.text_area("Observations")
         
-        submit_button = st.form_submit_button(label='Ajouter Mission')
+        submit_button = st.form_submit_button(label='➕ Ajouter Mission')
         
         if submit_button:
             add_mission(id_mission, type_mission, latitude, longitude, date, heure, statut, drone_id, operateur, observations)
-            st.success("Mission ajoutée avec succès!")
+            st.success("Mission ajoutée avec succès! 🎉")
 
     # Supprimer une mission
-    st.subheader("Supprimer une Mission")
+    st.subheader("❌ Supprimer une Mission")
     mission_to_delete = st.text_input("Entrez l'ID de la mission à supprimer")
-    delete_button = st.button("Supprimer Mission")
+    delete_button = st.button("❌ Supprimer Mission")
     if delete_button:
         delete_mission(mission_to_delete)
-        st.success(f"Mission {mission_to_delete} supprimée avec succès!")
+        st.success(f"Mission {mission_to_delete} supprimée avec succès! 🗑️")
 
     # Option pour télécharger la base de données
-    st.subheader("Télécharger la Base de Données")
-    if st.button("Télécharger la base de données"):
+    st.subheader("📥 Télécharger la Base de Données")
+    if st.button("📥 Télécharger la base de données"):
         with open('missions_drone.db', 'rb') as f:
-            st.download_button('Télécharger missions_drone.db', f, file_name='missions_drone.db')
+            st.download_button('📥 Télécharger missions_drone.db', f, file_name='missions_drone.db')
 
 # Si l'utilisateur choisit "Tableau de Bord des Dégradations"
-elif selection == "Tableau de Bord des Dégradations":
-    st.header("Dégradations Routières : Carte des Inspections Réelles")
+elif selection == "📋 Tableau de Bord des Dégradations":
+    st.header("🛣️ Dégradations Routières : Carte des Inspections Réelles")
     st.write("Survolez une route pour voir son nom et passez sur un marqueur pour voir les détails de la dégradation.")
 
     # Initialisation de la carte Folium
@@ -168,34 +168,35 @@ elif selection == "Tableau de Bord des Dégradations":
     st_folium(m, width=800, height=600)
 
     # Tableau de bord sous la carte
-    st.header("Tableau de Bord des Dégradations Routières")
+    st.header("📊 Tableau de Bord des Dégradations Routières")
 
     # Section 1 : Statistiques Globales
-    st.subheader("Statistiques Globales")
+    st.subheader("📈 Statistiques Globales")
     col1, col2, col3 = st.columns(3)
     col1.metric("Nombre Total de Dégradations", df_defauts.shape[0])
     col2.metric("Nombre de Routes Inspectées", df_defauts["route"].nunique())
     col3.metric("Nombre de Villes Touchées", df_defauts["ville"].nunique())
 
     # Section 2 : Répartition des Dégradations par Catégorie
-    st.subheader("Répartition des Dégradations par Catégorie")
+    st.subheader("📊 Répartition des Dégradations par Catégorie")
     fig_categories = px.pie(df_defauts, names="categorie", title="Répartition des Dégradations par Catégorie")
     st.plotly_chart(fig_categories)
 
     # Section 3 : Gravité des Dégradations
-    st.subheader("Distribution des Niveaux de Gravité")
+    st.subheader("📉 Distribution des Niveaux de Gravité")
     fig_gravite = px.histogram(df_defauts, x="gravite", nbins=10, title="Distribution des Niveaux de Gravité")
     st.plotly_chart(fig_gravite)
 
     # Section 4 : Dégradations par Ville
-    st.subheader("Dégradations par Ville")
+    st.subheader("🏙️ Dégradations par Ville")
     defauts_par_ville = df_defauts["ville"].value_counts().reset_index()
     defauts_par_ville.columns = ["ville", "nombre_de_degradations"]
     fig_ville = px.bar(defauts_par_ville, x="ville", y="nombre_de_degradations", title="Nombre de Dégradations par Ville")
     st.plotly_chart(fig_ville)
 
     # Section 5 : Évolution Temporelle des Dégradations
-    st.subheader("Évolution Temporelle des Dégradations")
+    st.subheader("📅 Évolution Temporelle des Dégradations")
     df_defauts["date"] = pd.to_datetime(df_defauts["date"])  # Convertir la colonne date en datetime
-    fig_temporal = px.line(df_defauts, x="date", title="Évolution Temporelle des Dégradations")
+    df_defauts_grouped = df_defauts.groupby(df_defauts["date"].dt.date).size().reset_index(name="nombre_de_degradations")
+    fig_temporal = px.line(df_defauts_grouped, x="date", y="nombre_de_degradations", title="Évolution Temporelle des Dégradations")
     st.plotly_chart(fig_temporal)
