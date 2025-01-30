@@ -47,6 +47,15 @@ st.write("Survolez une route pour voir son nom et passez sur un marqueur pour vo
 # Initialisation de la carte Folium
 m = folium.Map(location=[6.5, -5], zoom_start=7)
 
+# Ajouter les routes sous forme de lignes avec tooltip
+for route in routes_ci:
+    folium.PolyLine(
+        locations=[(lat, lon) for lon, lat in route["coords"]],
+        color="blue",
+        weight=3,
+        opacity=0.7,
+        tooltip=route["nom"]  # Affichage du vrai nom de la route
+    ).add_to(m)
 # Ajouter les dégradations à la carte
 for defaut in defauts_data:
     route, categorie, gravite, lat, lon = defaut
@@ -60,17 +69,6 @@ for defaut in defauts_data:
         popup=f"Route: {route}<br>Catégorie: {categorie}<br>Gravité: {gravite}",
         tooltip=f"{categorie} (Gravité {gravite})"
     ).add_to(m)
-
-# Ajouter les routes sous forme de lignes avec tooltip
-for route in routes_ci:
-    folium.PolyLine(
-        locations=[(lat, lon) for lon, lat in route["coords"]],
-        color="blue",
-        weight=3,
-        opacity=0.7,
-        tooltip=route["nom"]  # Affichage du vrai nom de la route
-    ).add_to(m)
-
 # Affichage de la carte dans Streamlit
 st_folium(m, width=800, height=600)
 
