@@ -127,7 +127,7 @@ if selection == "📂 Gestion des Missions":
 
 # Si l'utilisateur choisit "Tableau de Bord des Dégradations"
 elif selection == "📊 Tableau de Bord des Dégradations":  # Assurez-vous que cette valeur correspond exactement à celle de la sidebar
-    st.header("Dégradations Routières : Carte des Inspections Réelles")
+    st.header("Dégradations Routières")
     st.write("Survolez une route pour voir son nom et passez sur un marqueur pour voir les détails de la dégradation.")
 
     # Initialisation de la carte Folium
