@@ -1,20 +1,12 @@
 import streamlit as st
 import folium
+import random
 import json
 from streamlit_folium import st_folium
 
 # Charger les données des routes à partir du fichier JSON
 with open("routeQSD.txt", "r") as f:
     routes_data = json.load(f)
-
-# Extraire les coordonnées et noms des routes sous forme de LineStrings
-routes_ci = []
-for feature in routes_data["features"]:
-    if feature["geometry"]["type"] == "LineString":
-        routes_ci.append({
-            "coords": feature["geometry"]["coordinates"],
-            "nom": feature["properties"].get("ID", "Route inconnue")  # Récupération correcte du nom
-        })
 
 # Définition des catégories de dégradations et niveaux de gravité
 degradations = {
@@ -33,59 +25,97 @@ degradations = {
     "assainissement": "teal"
 }
 
-# Charger les données des dégradations depuis un fichier utilisateur
-uploaded_file = st.file_uploader("Choisissez un fichier GEOJSON ou TXT", type=["geojson", "txt"])
+# Extraire les coordonnées des routes sous forme de LineStrings
+routes_ci = []
+for feature in routes_data["features"]:
+    if feature["geometry"]["type"] == "LineString":
+        routes_ci.append({
+            "coords": feature["geometry"]["coordinates"]
+        })
 
-data = []
-if uploaded_file is not None:
-    file_content = uploaded_file.read().decode("utf-8")
-    try:
-        geojson_data = json.loads(file_content)
-        for feature in geojson_data["features"]:
-            if feature["geometry"]["type"] == "Point":
-                coords = feature["geometry"]["coordinates"]
-                props = feature["properties"]
-                data.append({
-                    "categorie": props.get("categorie", "Inconnu"),
-                    "gravite": props.get("gravite", 1),
-                    "lat": coords[1],
-                    "lon": coords[0]
-                })
-    except json.JSONDecodeError:
-        st.error("Erreur de lecture du fichier. Assurez-vous qu'il est bien formaté.")
+# Fonction pour générer des dégradations aléatoires sur les routes
+def generer_degradations():
+    data = []
+    for _ in range(100):
+        route = random.choice(routes_ci)
+        categorie = random.choice(list(degradations.keys()))
+        gravite = random.randint(1, 3)
+        coord = random.choice(route["coords"])
+        lon, lat = coord[0] + random.uniform(-0.0005, 0.0005), coord[1] + random.uniform(-0.0005, 0.0005)
+        data.append({
+            "categorie": categorie,
+            "gravite": gravite,
+            "lat": lat,
+            "lon": lon
+        })
+    return data
 
 # Initialisation de l'application Streamlit
-st.title("Dégradations Routières : Carte des Inspections Réelles")
-st.write("Survolez une route pour voir son nom et passez sur un marqueur pour voir les détails de la dégradation.")
+st.title("Dégradations Routières : Carte des Inspections Virtuelles")
+st.write("Cliquez sur un marqueur pour voir les détails de la dégradation.")
+
+# Bouton pour rafraîchir les données
+if st.button("Rafraîchir les dégradations"):
+    st.session_state.degradations = generer_degradations()
+
+# Générer les données si elles n'existent pas déjà
+if "degradations" not in st.session_state:
+    st.session_state.degradations = generer_degradations()
+
+data = st.session_state.degradations
 
 # Initialisation de la carte Folium
 m = folium.Map(location=[6.5, -5], zoom_start=7)
 
-# Ajouter les routes sous forme de lignes avec tooltip
+# Ajouter les routes sous forme de lignes
 for route in routes_ci:
     folium.PolyLine(
         locations=[(lat, lon) for lon, lat in route["coords"]],
         color="blue",
         weight=3,
-        opacity=0.7,
-        tooltip=route["nom"]  # Affichage du vrai nom de la route
+        opacity=0.7
     ).add_to(m)
 
-# Ajout des points de dégradations si les données sont valides
-if data:
-    for d in data:
-        couleur = degradations.get(d["categorie"], "gray")
-        folium.Circle(
-            location=[d["lat"], d["lon"]],
-            radius=3 + d["gravite"] * 2,
-            color=couleur,
-            fill=True,
-            fill_color=couleur,
-            popup=f"Catégorie: {d['categorie']}<br>Gravité: {d['gravite']}",
-            tooltip=f"{d['categorie']} (Gravité {d['gravite']})"
-        ).add_to(m)
-else:
-    st.write("Aucune donnée de dégradation chargée.")
+# Ajout des marqueurs sous forme de petits cercles pleins
+for d in data:
+    couleur = degradations[d["categorie"]]
+    folium.CircleMarker(
+        location=[d["lat"], d["lon"]],
+        radius=4 + d["gravite"],
+        color=couleur,
+        fill=True,
+        fill_color=couleur,
+        popup=f"Catégorie: {d['categorie']}\nGravité: {d['gravite']}",
+        tooltip=f"{d['categorie']} (Gravité {d['gravite']})"
+    ).add_to(m)
 
 # Affichage de la carte dans Streamlit
 st_folium(m, width=800, height=600)
+
+# Fonction pour télécharger les données en JSON
+def telecharger_json():
+    return json.dumps(data, indent=4)
+
+# Fonction pour télécharger les données en GeoJSON
+def telecharger_geojson():
+    geojson_data = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [d["lon"], d["lat"]]
+                },
+                "properties": {
+                    "categorie": d["categorie"],
+                    "gravite": d["gravite"]
+                }
+            } for d in data
+        ]
+    }
+    return json.dumps(geojson_data, indent=4)
+
+# Boutons de téléchargement
+st.download_button("Télécharger JSON", telecharger_json(), "degradations.json", "application/json")
+st.download_button("Télécharger GeoJSON", telecharger_geojson(), "degradations.geojson", "application/geo+json")
