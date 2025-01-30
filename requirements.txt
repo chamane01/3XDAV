@@ -25,3 +25,4 @@ fiona
 plotly
 folium
 overpy
+reportlab
