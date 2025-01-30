@@ -99,3 +99,35 @@ elif selection == "Tableau de Bord des Dégradations":
             tooltip=route["nom"]
         ).add_to(m)
     st_folium(m, width=800, height=600)
+# Tableau de bord sous la carte
+    st.header("Tableau de Bord des Dégradations Routières")
+
+    # Section 1 : Statistiques Globales
+    st.subheader("Statistiques Globales")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Nombre Total de Dégradations", df_defauts.shape[0])
+    col2.metric("Nombre de Routes Inspectées", df_defauts["route"].nunique())
+    col3.metric("Nombre de Villes Touchées", df_defauts["ville"].nunique())
+
+    # Section 2 : Répartition des Dégradations par Catégorie
+    st.subheader("Répartition des Dégradations par Catégorie")
+    fig_categories = px.pie(df_defauts, names="categorie", title="Répartition des Dégradations par Catégorie")
+    st.plotly_chart(fig_categories)
+
+    # Section 3 : Gravité des Dégradations
+    st.subheader("Distribution des Niveaux de Gravité")
+    fig_gravite = px.histogram(df_defauts, x="gravite", nbins=10, title="Distribution des Niveaux de Gravité")
+    st.plotly_chart(fig_gravite)
+
+    # Section 4 : Dégradations par Ville
+    st.subheader("Dégradations par Ville")
+    defauts_par_ville = df_defauts["ville"].value_counts().reset_index()
+    defauts_par_ville.columns = ["ville", "nombre_de_degradations"]
+    fig_ville = px.bar(defauts_par_ville, x="ville", y="nombre_de_degradations", title="Nombre de Dégradations par Ville")
+    st.plotly_chart(fig_ville)
+
+    # Section 5 : Évolution Temporelle des Dégradations
+    st.subheader("Évolution Temporelle des Dégradations")
+    df_defauts["date"] = pd.to_datetime(df_defauts["date"])  # Convertir la colonne date en datetime
+    fig_temporal = px.line(df_defauts, x="date", title="Évolution Temporelle des Dégradations")
+    st.plotly_chart(fig_temporal)
