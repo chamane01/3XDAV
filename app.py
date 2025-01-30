@@ -7,9 +7,11 @@ from streamlit_folium import st_folium
 # Connexion à la base de données SQLite
 conn = sqlite3.connect('routes_defauts.db')
 cur = conn.cursor()
+
 # Charger les données des routes à partir du fichier JSON
 with open("routeQSD.txt", "r") as f:
     routes_data = json.load(f)
+
 # Extraire les coordonnées et noms des routes sous forme de LineStrings
 routes_ci = []
 for feature in routes_data["features"]:
@@ -20,7 +22,7 @@ for feature in routes_data["features"]:
         })
 
 # Récupérer les données des dégradations depuis la base de données
-cur.execute("SELECT route, categorie, gravite, latitude, longitude FROM Defauts")
+cur.execute("SELECT route, categorie, gravite, latitude, longitude, date, heure, ville FROM Defauts")
 defauts_data = cur.fetchall()
 
 # Définition des catégories de dégradations et niveaux de gravité
@@ -56,19 +58,30 @@ for route in routes_ci:
         opacity=0.7,
         tooltip=route["nom"]  # Affichage du vrai nom de la route
     ).add_to(m)
+
 # Ajouter les dégradations à la carte
 for defaut in defauts_data:
-    route, categorie, gravite, lat, lon = defaut
+    route, categorie, gravite, lat, lon, date, heure, ville = defaut
     couleur = degradations.get(categorie, "gray")
+    
+    # Créer un cercle avec une taille en fonction de la gravité
     folium.Circle(
         location=[lat, lon],
         radius=3 + gravite * 2,
         color=couleur,
         fill=True,
         fill_color=couleur,
-        popup=f"Route: {route}<br>Catégorie: {categorie}<br>Gravité: {gravite}",
+        popup=(
+            f"Route: {route}<br>"
+            f"Catégorie: {categorie}<br>"
+            f"Gravité: {gravite}<br>"
+            f"Date: {date}<br>"
+            f"Heure: {heure}<br>"
+            f"Ville: {ville}"
+        ),
         tooltip=f"{categorie} (Gravité {gravite})"
     ).add_to(m)
+
 # Affichage de la carte dans Streamlit
 st_folium(m, width=800, height=600)
 
