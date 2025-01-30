@@ -76,11 +76,11 @@ degradations = {
 }
 
 # Initialisation de l'application Streamlit
-st.title("📊 AGEROUTE (Application de Gestion des Routes)")
+st.title("🛣️ AGEROUTE (Application de Gestion des Routes)")
 
 # Sidebar pour la navigation
 st.sidebar.title("🌍 Navigation")
-selection = st.sidebar.radio("Choisir une section", ["📋 Tableau de Bord des Dégradations", "📂 Gestion des Missions"])
+selection = st.sidebar.radio("Choisir une section", ["📊 Tableau de Bord des Dégradations", "📂 Gestion des Missions"])
 
 # Si l'utilisateur choisit "Gestion des Missions"
 if selection == "📂 Gestion des Missions":
@@ -127,7 +127,7 @@ if selection == "📂 Gestion des Missions":
 
 # Si l'utilisateur choisit "Tableau de Bord des Dégradations"
 elif selection == "📋 Tableau de Bord des Dégradations":
-    st.header("🛣️ Dégradations Routières : Carte des Inspections Réelles")
+    st.header(" Dégradations Routières : Carte des Inspections Réelles")
     st.write("Survolez une route pour voir son nom et passez sur un marqueur pour voir les détails de la dégradation.")
 
     # Initialisation de la carte Folium
