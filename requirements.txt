@@ -1,28 +1,109 @@
-moviepy
-geojson
-scikit-image
-scikit-learn
-rasterio
-gpxpy
-streamlit
-pandas
-numpy
-matplotlib
-scipy
-shapely
-streamlit-folium
-matplotlib
-geopandas
-requests
-osmnx
-contextily
-pyproj # Pour la conversion des coordonnées
-ezdxf
-opencv-python
-datetime
-pyogrio
-fiona
-plotly
-folium
-overpy
-reportlab
+import streamlit as st
+import folium
+import sqlite3
+import json
+import pandas as pd
+import plotly.express as px
+from streamlit_folium import st_folium
+from io import BytesIO
+from PIL import Image
+import matplotlib.pyplot as plt
+
+# Connexion à la base de données SQLite
+conn = sqlite3.connect('routes_defauts.db')
+cur = conn.cursor()
+
+# Charger les données des routes à partir du fichier JSON
+with open("routeQSD.txt", "r") as f:
+    routes_data = json.load(f)
+
+# Extraire les coordonnées et noms des routes sous forme de LineStrings
+routes_ci = []
+for feature in routes_data["features"]:
+    if feature["geometry"]["type"] == "LineString":
+        routes_ci.append({
+            "coords": feature["geometry"]["coordinates"],
+            "nom": feature["properties"].get("ID", "Route inconnue")
+        })
+
+# Récupérer les données des dégradations depuis la base de données
+cur.execute("SELECT route, categorie, gravite, latitude, longitude, date, heure, ville FROM Defauts")
+defauts_data = cur.fetchall()
+
+df_defauts = pd.DataFrame(defauts_data, columns=["route", "categorie", "gravite", "latitude", "longitude", "date", "heure", "ville"])
+
+# Définition des catégories de dégradations et niveaux de gravité
+degradations = {
+    "déformation orniérage": "red",
+    "fissure de fatigue": "blue",
+    "faïençage de fatigue": "green",
+    "fissure de retrait": "purple",
+    "fissure anarchique": "orange",
+    "réparation": "pink",
+    "nid de poule": "brown",
+    "arrachements": "gray",
+    "fluage": "yellow",
+    "dénivellement accotement": "cyan",
+    "chaussée détruite": "black",
+    "envahissement végétation": "magenta",
+    "assainissement": "teal"
+}
+
+st.title("Dégradations Routières : Tableau de Bord et Rapport")
+
+# Initialisation de la carte Folium
+m = folium.Map(location=[6.5, -5], zoom_start=7)
+for route in routes_ci:
+    folium.PolyLine(
+        locations=[(lat, lon) for lon, lat in route["coords"]],
+        color="blue", weight=3, opacity=0.5, tooltip=route["nom"]
+    ).add_to(m)
+
+for defaut in defauts_data:
+    route, categorie, gravite, lat, lon, date, heure, ville = defaut
+    couleur = degradations.get(categorie, "gray")
+    folium.Circle(
+        location=[lat, lon], radius=3 + gravite * 2,
+        color=couleur, fill=True, fill_color=couleur,
+        popup=f"Route: {route}<br>Catégorie: {categorie}<br>Gravité: {gravite}<br>Date: {date}<br>Heure: {heure}<br>Ville: {ville}",
+        tooltip=f"{categorie} (Gravité {gravite})"
+    ).add_to(m)
+
+st_folium(m, width=800, height=600)
+
+# Bouton de génération du rapport
+if st.button("Générer le Rapport"):
+    fig, axes = plt.subplots(2, 2, figsize=(10, 8))
+    
+    # Graphique 1 : Répartition des dégradations
+    df_defauts["categorie"].value_counts().plot(kind="bar", ax=axes[0, 0], color='royalblue')
+    axes[0, 0].set_title("Répartition des Dégradations")
+    
+    # Graphique 2 : Gravité
+    df_defauts["gravite"].hist(bins=10, ax=axes[0, 1], color='orangered')
+    axes[0, 1].set_title("Distribution des Niveaux de Gravité")
+    
+    # Graphique 3 : Dégradations par ville
+    df_defauts["ville"].value_counts().plot(kind="bar", ax=axes[1, 0], color='green')
+    axes[1, 0].set_title("Nombre de Dégradations par Ville")
+    
+    # Graphique 4 : Évolution temporelle
+    df_defauts["date"] = pd.to_datetime(df_defauts["date"])
+    df_defauts.groupby(df_defauts["date"].dt.date).size().plot(ax=axes[1, 1], color='purple')
+    axes[1, 1].set_title("Évolution des Dégradations")
+    
+    plt.tight_layout()
+    buf = BytesIO()
+    plt.savefig(buf, format="png")
+    buf.seek(0)
+    st.image(buf, caption="Aperçu du Rapport", use_column_width=True)
+    
+    st.download_button(
+        label="Télécharger le Rapport",
+        data=buf,
+        file_name="rapport_degradations.png",
+        mime="image/png"
+    )
+
+# Fermer la connexion
+conn.close()
