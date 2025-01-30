@@ -1,40 +1,15 @@
 import streamlit as st
-import sqlite3
-import pandas as pd
 import folium
+import sqlite3
 import json
+import pandas as pd
 import plotly.express as px
 from streamlit_folium import st_folium
+from io import BytesIO
 
 # Connexion à la base de données SQLite
-def connect_db():
-    conn = sqlite3.connect('missions_drone.db')
-    return conn
-
-# Fonction pour récupérer les données de la table Missions
-def get_missions():
-    conn = connect_db()
-    query = "SELECT * FROM Missions"
-    df = pd.read_sql(query, conn)
-    conn.close()
-    return df
-
-# Fonction pour ajouter une nouvelle mission à la base de données
-def add_mission(id_mission, type_mission, latitude, longitude, date, heure, statut, drone_id, operateur, observations):
-    conn = connect_db()
-    query = '''INSERT INTO Missions (id_mission, type_mission, latitude, longitude, date, heure, statut, drone_id, operateur, observations)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'''
-    conn.execute(query, (id_mission, type_mission, latitude, longitude, date, heure, statut, drone_id, operateur, observations))
-    conn.commit()
-    conn.close()
-
-# Fonction pour supprimer une mission par son ID
-def delete_mission(id_mission):
-    conn = connect_db()
-    query = "DELETE FROM Missions WHERE id_mission = ?"
-    conn.execute(query, (id_mission,))
-    conn.commit()
-    conn.close()
+conn = sqlite3.connect('routes_defauts.db')
+cur = conn.cursor()
 
 # Charger les données des routes à partir du fichier JSON
 with open("routeQSD.txt", "r") as f:
@@ -46,19 +21,15 @@ for feature in routes_data["features"]:
     if feature["geometry"]["type"] == "LineString":
         routes_ci.append({
             "coords": feature["geometry"]["coordinates"],
-            "nom": feature["properties"].get("ID", "Route inconnue")  # Récupération correcte du nom
+            "nom": feature["properties"].get("ID", "Route inconnue")
         })
 
 # Récupérer les données des dégradations depuis la base de données
-conn = sqlite3.connect('routes_defauts.db')
-cur = conn.cursor()
 cur.execute("SELECT route, categorie, gravite, latitude, longitude, date, heure, ville FROM Defauts")
 defauts_data = cur.fetchall()
-
-# Convertir les données en DataFrame pour une analyse facile
 df_defauts = pd.DataFrame(defauts_data, columns=["route", "categorie", "gravite", "latitude", "longitude", "date", "heure", "ville"])
 
-# Définition des catégories de dégradations et niveaux de gravité
+# Dégradations et couleurs associées
 degradations = {
     "déformation orniérage": "red",
     "fissure de fatigue": "blue",
@@ -75,128 +46,112 @@ degradations = {
     "assainissement": "teal"
 }
 
-# Initialisation de l'application Streamlit
-st.title("🛣️ AGEROUTE (Application de Gestion des Routes)")
+# Interface Streamlit
+st.title("Dégradations Routières : Carte des Inspections Réelles")
 
-# Sidebar pour la navigation
-st.sidebar.title("🌍 Navigation")
-selection = st.sidebar.radio("Choisir une section", ["📊 Tableau de Bord des Dégradations", "📂 Gestion des Missions"])
+# Carte Folium
+m = folium.Map(location=[6.5, -5], zoom_start=7)
 
-# Si l'utilisateur choisit "Gestion des Missions"
-if selection == "📂 Gestion des Missions":
-    st.subheader("📂 Gestion des Missions")
+# Ajouter les routes
+for route in routes_ci:
+    folium.PolyLine(
+        locations=[(lat, lon) for lon, lat in route["coords"]],
+        color="blue",
+        weight=3,
+        opacity=0.7,
+        tooltip=route["nom"]
+    ).add_to(m)
 
-    # Afficher les missions
-    st.subheader("📋 Liste des Missions")
-    missions_df = get_missions()
-    st.write(missions_df)
+# Ajouter les dégradations
+for defaut in defauts_data:
+    route, categorie, gravite, lat, lon, date, heure, ville = defaut
+    couleur = degradations.get(categorie, "gray")
+    
+    folium.Circle(
+        location=[lat, lon],
+        radius=3 + gravite * 2,
+        color=couleur,
+        fill=True,
+        fill_color=couleur,
+        popup=(
+            f"Route: {route}<br>"
+            f"Catégorie: {categorie}<br>"
+            f"Gravité: {gravite}<br>"
+            f"Date: {date}<br>"
+            f"Heure: {heure}<br>"
+            f"Ville: {ville}"
+        ),
+        tooltip=f"{categorie} (Gravité {gravite})"
+    ).add_to(m)
 
-    # Ajouter une nouvelle mission
-    st.subheader("➕ Ajouter une Mission")
-    with st.form(key='add_mission_form'):
-        id_mission = st.text_input("ID Mission")
-        type_mission = st.selectbox("Type de Mission", ["drone", "voiture", "manuelle", "mixte"])
-        latitude = st.number_input("Latitude", format="%.6f")
-        longitude = st.number_input("Longitude", format="%.6f")
-        date = st.date_input("Date")
-        heure = st.time_input("Heure")
-        statut = st.selectbox("Statut", ["terminée", "en cours", "planifiée", "annulée"])
-        drone_id = st.text_input("ID Drone")
-        operateur = st.text_input("Opérateur")
-        observations = st.text_area("Observations")
-        
-        submit_button = st.form_submit_button(label='➕ Ajouter Mission')
-        
-        if submit_button:
-            add_mission(id_mission, type_mission, latitude, longitude, date, heure, statut, drone_id, operateur, observations)
-            st.success("Mission ajoutée avec succès! 🎉")
+# Affichage de la carte
+st_folium(m, width=800, height=600)
 
-    # Supprimer une mission
-    st.subheader("❌ Supprimer une Mission")
-    mission_to_delete = st.text_input("Entrez l'ID de la mission à supprimer")
-    delete_button = st.button("❌ Supprimer Mission")
-    if delete_button:
-        delete_mission(mission_to_delete)
-        st.success(f"Mission {mission_to_delete} supprimée avec succès! 🗑️")
+# Tableau de bord
+st.header("Tableau de Bord des Dégradations Routières")
 
-    # Option pour télécharger la base de données
-    st.subheader("📥 Télécharger la Base de Données")
-    if st.button("📥 Télécharger la base de données"):
-        with open('missions_drone.db', 'rb') as f:
-            st.download_button('📥 Télécharger missions_drone.db', f, file_name='missions_drone.db')
+# Statistiques
+st.subheader("Statistiques Globales")
+col1, col2, col3 = st.columns(3)
+col1.metric("Nombre Total de Dégradations", df_defauts.shape[0])
+col2.metric("Nombre de Routes Inspectées", df_defauts["route"].nunique())
+col3.metric("Nombre de Villes Touchées", df_defauts["ville"].nunique())
 
-# Si l'utilisateur choisit "Tableau de Bord des Dégradations"
-elif selection == "📊 Tableau de Bord des Dégradations":  # Assurez-vous que cette valeur correspond exactement à celle de la sidebar
-    st.header("Dégradations Routières")
-    st.write("Survolez une route pour voir son nom et passez sur un marqueur pour voir les détails de la dégradation.")
+# Graphiques
+st.subheader("Répartition des Dégradations par Catégorie")
+fig_categories = px.pie(df_defauts, names="categorie", title="Répartition des Dégradations par Catégorie")
+st.plotly_chart(fig_categories)
 
-    # Initialisation de la carte Folium
-    m = folium.Map(location=[6.5, -5], zoom_start=7)
+st.subheader("Distribution des Niveaux de Gravité")
+fig_gravite = px.histogram(df_defauts, x="gravite", nbins=10, title="Distribution des Niveaux de Gravité")
+st.plotly_chart(fig_gravite)
 
-    # Ajouter les routes sous forme de lignes avec tooltip
-    for route in routes_ci:
-        folium.PolyLine(
-            locations=[(lat, lon) for lon, lat in route["coords"]],
-            color="blue",
-            weight=3,
-            opacity=0.7,
-            tooltip=route["nom"]  # Affichage du vrai nom de la route
-        ).add_to(m)
+st.subheader("Dégradations par Ville")
+defauts_par_ville = df_defauts["ville"].value_counts().reset_index()
+defauts_par_ville.columns = ["ville", "nombre_de_degradations"]
+fig_ville = px.bar(defauts_par_ville, x="ville", y="nombre_de_degradations", title="Nombre de Dégradations par Ville")
+st.plotly_chart(fig_ville)
 
-    # Ajouter les dégradations à la carte
-    for defaut in defauts_data:
-        route, categorie, gravite, lat, lon, date, heure, ville = defaut
-        couleur = degradations.get(categorie, "gray")
-        
-        # Créer un cercle avec une taille en fonction de la gravité
-        folium.Circle(
-            location=[lat, lon],
-            radius=3 + gravite * 2,
-            color=couleur,
-            fill=True,
-            fill_color=couleur,
-            popup=(f"Route: {route}<br>"
-                   f"Catégorie: {categorie}<br>"
-                   f"Gravité: {gravite}<br>"
-                   f"Date: {date}<br>"
-                   f"Heure: {heure}<br>"
-                   f"Ville: {ville}"),
-            tooltip=f"{categorie} (Gravité {gravite})"
-        ).add_to(m)
+st.subheader("Évolution Temporelle des Dégradations")
+df_defauts["date"] = pd.to_datetime(df_defauts["date"])
+defauts_par_date = df_defauts.groupby(df_defauts["date"].dt.date).size().reset_index(name="nombre_de_degradations")
+fig_date = px.line(defauts_par_date, x="date", y="nombre_de_degradations", title="Évolution du Nombre de Dégradations au Fil du Temps")
+st.plotly_chart(fig_date)
 
-    # Affichage de la carte dans Streamlit
-    st_folium(m, width=800, height=600)
+# Section Génération de Rapport
+st.header("📄 Génération de Rapport Personnalisé")
 
-    # Tableau de bord sous la carte
-    st.header("📊 Tableau de Bord des Dégradations Routières")
+# Sélections utilisateur
+st.subheader("Sélectionnez les éléments à inclure dans le rapport")
 
-    # Section 1 : Statistiques Globales
-    st.subheader("📈 Statistiques Globales")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Nombre Total de Dégradations", df_defauts.shape[0])
-    col2.metric("Nombre de Routes Inspectées", df_defauts["route"].nunique())
-    col3.metric("Nombre de Villes Touchées", df_defauts["ville"].nunique())
+col1, col2 = st.columns(2)
 
-    # Section 2 : Répartition des Dégradations par Catégorie
-    st.subheader("📊 Répartition des Dégradations par Catégorie")
-    fig_categories = px.pie(df_defauts, names="categorie", title="Répartition des Dégradations par Catégorie")
-    st.plotly_chart(fig_categories)
+# Filtres
+selected_categories = col1.multiselect("Catégories de Dégradations", df_defauts["categorie"].unique(), default=df_defauts["categorie"].unique())
+selected_villes = col2.multiselect("Villes", df_defauts["ville"].unique(), default=df_defauts["ville"].unique())
 
-    # Section 3 : Gravité des Dégradations
-    st.subheader("📉 Distribution des Niveaux de Gravité")
-    fig_gravite = px.histogram(df_defauts, x="gravite", nbins=10, title="Distribution des Niveaux de Gravité")
-    st.plotly_chart(fig_gravite)
+# Sélection des champs à inclure
+selected_columns = st.multiselect("Champs à inclure dans le rapport", df_defauts.columns.tolist(), default=df_defauts.columns.tolist())
 
-    # Section 4 : Dégradations par Ville
-    st.subheader("🏙️ Dégradations par Ville")
-    defauts_par_ville = df_defauts["ville"].value_counts().reset_index()
-    defauts_par_ville.columns = ["ville", "nombre_de_degradations"]
-    fig_ville = px.bar(defauts_par_ville, x="ville", y="nombre_de_degradations", title="Nombre de Dégradations par Ville")
-    st.plotly_chart(fig_ville)
+# Filtrer les données selon les choix
+filtered_df = df_defauts[(df_defauts["categorie"].isin(selected_categories)) & (df_defauts["ville"].isin(selected_villes))][selected_columns]
 
-    # Section 5 : Évolution Temporelle des Dégradations
-    st.subheader("📅 Évolution Temporelle des Dégradations")
-    df_defauts["date"] = pd.to_datetime(df_defauts["date"])  # Convertir la colonne date en datetime
-    df_defauts_grouped = df_defauts.groupby(df_defauts["date"].dt.date).size().reset_index(name="nombre_de_degradations")
-    fig_temporal = px.line(df_defauts_grouped, x="date", y="nombre_de_degradations", title="Évolution Temporelle des Dégradations")
-    st.plotly_chart(fig_temporal)
+# Affichage du rapport
+st.subheader("📊 Rapport Généré")
+st.dataframe(filtered_df)
+
+# Bouton d'exportation CSV
+def convert_df_to_csv(df):
+    return df.to_csv(index=False).encode('utf-8')
+
+csv_data = convert_df_to_csv(filtered_df)
+
+st.download_button(
+    label="📥 Télécharger le Rapport (CSV)",
+    data=csv_data,
+    file_name="rapport_degradations.csv",
+    mime="text/csv"
+)
+
+# Fermeture de la connexion à la base de données
+conn.close()
