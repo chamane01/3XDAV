@@ -1,6 +1,7 @@
 import streamlit as st
 import folium
 import sqlite3
+import json 
 from streamlit_folium import st_folium
 
 # Connexion à la base de données SQLite
