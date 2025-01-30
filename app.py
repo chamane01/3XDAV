@@ -1,157 +1,123 @@
 import streamlit as st
-import folium
-import sqlite3
-import json
 import pandas as pd
 import plotly.express as px
-from streamlit_folium import st_folium
 from io import BytesIO
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+import matplotlib.pyplot as plt
 
-# Connexion à la base de données SQLite
-conn = sqlite3.connect('routes_defauts.db')
-cur = conn.cursor()
+# 📌 Charger les données
+@st.cache_data
+def charger_donnees():
+    return pd.read_csv("data_defauts.csv")  # Assure-toi d'avoir ce fichier
 
-# Charger les données des routes à partir du fichier JSON
-with open("routeQSD.txt", "r") as f:
-    routes_data = json.load(f)
+df_defauts = charger_donnees()
 
-# Extraire les coordonnées et noms des routes sous forme de LineStrings
-routes_ci = []
-for feature in routes_data["features"]:
-    if feature["geometry"]["type"] == "LineString":
-        routes_ci.append({
-            "coords": feature["geometry"]["coordinates"],
-            "nom": feature["properties"].get("ID", "Route inconnue")
-        })
+# 📌 Interface principale
+st.title("📊 Analyse des Dégradations Routières")
 
-# Récupérer les données des dégradations depuis la base de données
-cur.execute("SELECT route, categorie, gravite, latitude, longitude, date, heure, ville FROM Defauts")
-defauts_data = cur.fetchall()
-df_defauts = pd.DataFrame(defauts_data, columns=["route", "categorie", "gravite", "latitude", "longitude", "date", "heure", "ville"])
+st.sidebar.header("Filtres")
+ville_selectionnee = st.sidebar.selectbox("Sélectionnez une ville :", ["Toutes"] + list(df_defauts["ville"].unique()))
 
-# Dégradations et couleurs associées
-degradations = {
-    "déformation orniérage": "red",
-    "fissure de fatigue": "blue",
-    "faïençage de fatigue": "green",
-    "fissure de retrait": "purple",
-    "fissure anarchique": "orange",
-    "réparation": "pink",
-    "nid de poule": "brown",
-    "arrachements": "gray",
-    "fluage": "yellow",
-    "dénivellement accotement": "cyan",
-    "chaussée détruite": "black",
-    "envahissement végétation": "magenta",
-    "assainissement": "teal"
-}
+# 📌 Filtrage des données
+if ville_selectionnee != "Toutes":
+    df_defauts = df_defauts[df_defauts["ville"] == ville_selectionnee]
 
-# Interface Streamlit
-st.title("Dégradations Routières : Carte des Inspections Réelles")
-
-# Carte Folium
-m = folium.Map(location=[6.5, -5], zoom_start=7)
-
-# Ajouter les routes
-for route in routes_ci:
-    folium.PolyLine(
-        locations=[(lat, lon) for lon, lat in route["coords"]],
-        color="blue",
-        weight=3,
-        opacity=0.7,
-        tooltip=route["nom"]
-    ).add_to(m)
-
-# Ajouter les dégradations
-for defaut in defauts_data:
-    route, categorie, gravite, lat, lon, date, heure, ville = defaut
-    couleur = degradations.get(categorie, "gray")
-    
-    folium.Circle(
-        location=[lat, lon],
-        radius=3 + gravite * 2,
-        color=couleur,
-        fill=True,
-        fill_color=couleur,
-        popup=(
-            f"Route: {route}<br>"
-            f"Catégorie: {categorie}<br>"
-            f"Gravité: {gravite}<br>"
-            f"Date: {date}<br>"
-            f"Heure: {heure}<br>"
-            f"Ville: {ville}"
-        ),
-        tooltip=f"{categorie} (Gravité {gravite})"
-    ).add_to(m)
-
-# Affichage de la carte
-st_folium(m, width=800, height=600)
-
-# Tableau de bord
-st.header("Tableau de Bord des Dégradations Routières")
-
-# Statistiques
-st.subheader("Statistiques Globales")
-col1, col2, col3 = st.columns(3)
-col1.metric("Nombre Total de Dégradations", df_defauts.shape[0])
-col2.metric("Nombre de Routes Inspectées", df_defauts["route"].nunique())
-col3.metric("Nombre de Villes Touchées", df_defauts["ville"].nunique())
-
-# Graphiques
-st.subheader("Répartition des Dégradations par Catégorie")
-fig_categories = px.pie(df_defauts, names="categorie", title="Répartition des Dégradations par Catégorie")
+# 📊 **Graphique 1 : Répartition des Dégradations par Catégorie**
+fig_categories = px.bar(df_defauts, x="categorie", title="Répartition des Dégradations par Catégorie", color="categorie")
 st.plotly_chart(fig_categories)
 
-st.subheader("Distribution des Niveaux de Gravité")
-fig_gravite = px.histogram(df_defauts, x="gravite", nbins=10, title="Distribution des Niveaux de Gravité")
+# 📊 **Graphique 2 : Distribution des Niveaux de Gravité**
+fig_gravite = px.histogram(df_defauts, x="gravite", title="Distribution des Niveaux de Gravité", nbins=5)
 st.plotly_chart(fig_gravite)
 
-st.subheader("Dégradations par Ville")
-defauts_par_ville = df_defauts["ville"].value_counts().reset_index()
-defauts_par_ville.columns = ["ville", "nombre_de_degradations"]
-fig_ville = px.bar(defauts_par_ville, x="ville", y="nombre_de_degradations", title="Nombre de Dégradations par Ville")
+# 📊 **Graphique 3 : Dégradations par Ville**
+fig_ville = px.bar(df_defauts, x="ville", title="Dégradations par Ville", color="ville")
 st.plotly_chart(fig_ville)
 
-st.subheader("Évolution Temporelle des Dégradations")
+# 📊 **Graphique 4 : Évolution Temporelle des Dégradations**
 df_defauts["date"] = pd.to_datetime(df_defauts["date"])
-defauts_par_date = df_defauts.groupby(df_defauts["date"].dt.date).size().reset_index(name="nombre_de_degradations")
-fig_date = px.line(defauts_par_date, x="date", y="nombre_de_degradations", title="Évolution du Nombre de Dégradations au Fil du Temps")
+fig_date = px.line(df_defauts, x="date", y="nombre", title="Évolution Temporelle des Dégradations")
 st.plotly_chart(fig_date)
 
-# Section Génération de Rapport
-st.header("📄 Génération de Rapport Personnalisé")
+# 📄 **Fonction pour générer un rapport PDF**
+def generer_rapport(selection):
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
 
-# Sélections utilisateur
-st.subheader("Sélectionnez les éléments à inclure dans le rapport")
+    # 📝 Ajouter un titre
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(200, height - 50, "Rapport d'Inspection Routière")
 
-col1, col2 = st.columns(2)
+    y_position = height - 80
 
-# Filtres
-selected_categories = col1.multiselect("Catégories de Dégradations", df_defauts["categorie"].unique(), default=df_defauts["categorie"].unique())
-selected_villes = col2.multiselect("Villes", df_defauts["ville"].unique(), default=df_defauts["ville"].unique())
+    # 📌 Ajouter les statistiques globales si sélectionnées
+    if "Statistiques Globales" in selection:
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(50, y_position, "Statistiques Globales :")
+        y_position -= 20
+        c.setFont("Helvetica", 10)
+        c.drawString(70, y_position, f"Nombre Total de Dégradations : {df_defauts.shape[0]}")
+        y_position -= 15
+        c.drawString(70, y_position, f"Nombre de Routes Inspectées : {df_defauts['route'].nunique()}")
+        y_position -= 15
+        c.drawString(70, y_position, f"Nombre de Villes Touchées : {df_defauts['ville'].nunique()}")
+        y_position -= 30
 
-# Sélection des champs à inclure
-selected_columns = st.multiselect("Champs à inclure dans le rapport", df_defauts.columns.tolist(), default=df_defauts.columns.tolist())
+    # 📌 Fonction pour insérer un graphe matplotlib dans le PDF
+    def ajouter_graphique(fig, y_position):
+        img_buffer = BytesIO()
+        fig.savefig(img_buffer, format="png")
+        img_buffer.seek(0)
+        c.drawImage(img_buffer, 50, y_position - 200, width=500, height=180)
+        return y_position - 210
 
-# Filtrer les données selon les choix
-filtered_df = df_defauts[(df_defauts["categorie"].isin(selected_categories)) & (df_defauts["ville"].isin(selected_villes))][selected_columns]
+    # 📌 Ajouter les graphiques sélectionnés
+    if "Répartition des Dégradations par Catégorie" in selection:
+        y_position -= 20
+        fig_categories.write_image("categorie_chart.png")
+        c.drawString(50, y_position, "Répartition des Dégradations par Catégorie :")
+        y_position = ajouter_graphique(fig_categories, y_position)
 
-# Affichage du rapport
-st.subheader("📊 Rapport Généré")
-st.dataframe(filtered_df)
+    if "Distribution des Niveaux de Gravité" in selection:
+        y_position -= 20
+        fig_gravite.write_image("gravite_chart.png")
+        c.drawString(50, y_position, "Distribution des Niveaux de Gravité :")
+        y_position = ajouter_graphique(fig_gravite, y_position)
 
-# Bouton d'exportation CSV
-def convert_df_to_csv(df):
-    return df.to_csv(index=False).encode('utf-8')
+    if "Dégradations par Ville" in selection:
+        y_position -= 20
+        fig_ville.write_image("ville_chart.png")
+        c.drawString(50, y_position, "Dégradations par Ville :")
+        y_position = ajouter_graphique(fig_ville, y_position)
 
-csv_data = convert_df_to_csv(filtered_df)
+    if "Évolution Temporelle des Dégradations" in selection:
+        y_position -= 20
+        fig_date.write_image("date_chart.png")
+        c.drawString(50, y_position, "Évolution Temporelle des Dégradations :")
+        y_position = ajouter_graphique(fig_date, y_position)
 
-st.download_button(
-    label="📥 Télécharger le Rapport (CSV)",
-    data=csv_data,
-    file_name="rapport_degradations.csv",
-    mime="text/csv"
-)
+    # 📌 Sauvegarde du PDF
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer
 
-# Fermeture de la connexion à la base de données
-conn.close()
+# 📌 **Interface de Génération de Rapport**
+st.header("📄 Génération de Rapport")
+
+# 📌 Options de sélection des sections du rapport
+options = [
+    "Statistiques Globales",
+    "Répartition des Dégradations par Catégorie",
+    "Distribution des Niveaux de Gravité",
+    "Dégradations par Ville",
+    "Évolution Temporelle des Dégradations"
+]
+
+selection = st.multiselect("📌 Sélectionnez les éléments à inclure :", options, default=options)
+
+if st.button("📄 Générer Rapport PDF"):
+    buffer = generer_rapport(selection)
+    st.download_button("📥 Télécharger le Rapport", buffer, file_name="rapport_degradations.pdf", mime="application/pdf")
