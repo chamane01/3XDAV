@@ -1,219 +1,130 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
-import folium
-import plotly.express as px
-from streamlit_folium import st_folium
-import json
-from datetime import datetime
+import random
 
-# =============================================================================
-# Fonctions de connexion et de gestion de la base de données
-# =============================================================================
+# Liste de quelques routes de la Côte d'Ivoire
+routes_list = ["la cotiere", "A1", "A2", "A3", "A100", "A4", "A5"]
 
-def connect_db():
-    conn = sqlite3.connect('base_donnees_missions.db')
-    return conn
+# Liste de classes de défauts (exemples)
+defect_classes = [
+    "deformations ornierage", "fissurations", "Faiençage", "fissure de retrait",
+    "fissure anarchique", "reparations", "nid de poule", "fluage", "arrachements",
+    "depot de terre", "assainissements", "envahissement vegetations",
+    "chaussée detruite", "denivellement accotement"
+]
 
-def get_missions():
-    conn = connect_db()
-    query = "SELECT * FROM missions"
-    df = pd.read_sql(query, conn)
-    conn.close()
+def format_road(road):
+    # Pour les routes de type A, on ajoute un descriptif
+    if road.startswith("A"):
+        return f"{road}(port-bouet, bassam)"
+    return road
+
+def generate_data(num_missions, total_defects):
+    """
+    Génère une DataFrame avec les colonnes suivantes :
+    ID, classe, gravite, coordonnees UTM, lat, long, routes, detection, mission,
+    couleur, radius, date, appareil, nom_appareil.
+    """
+    rows = []
+    defect_counter_global = 1
+
+    # Répartition uniforme des défauts par mission
+    defects_per_mission = total_defects // num_missions
+    reste = total_defects % num_missions
+
+    for m in range(1, num_missions + 1):
+        # Génération d'un code mission (ex: "20250228-001-I")
+        mission_code = f"20250228-{m:03d}-I"
+        # Ajustement pour le reste des défauts
+        nb_defects = defects_per_mission + (1 if m <= reste else 0)
+        for d in range(1, nb_defects + 1):
+            # ID du défaut (ex: "20250228-001-I-1")
+            defect_id = f"{mission_code}-{d}"
+            # Choix aléatoire de la classe de défaut
+            defect_class = random.choice(defect_classes)
+            # Gravité aléatoire entre 1 et 3
+            gravite = random.choice([1, 2, 3])
+            # Coordonnées UTM simulées (valeurs proches de l'exemple)
+            utm_x = round(random.uniform(429600, 429750), 2)
+            utm_y = round(random.uniform(578840, 579000), 2)
+            coordonnees = f"[{utm_x}, {utm_y}]"
+            # Latitude et longitude avec de petites variations
+            lat = round(random.uniform(5.2365, 5.2380), 4)
+            lon = round(random.uniform(-3.6355, -3.6340), 4)
+            # Choix aléatoire d'une route et formatage
+            route = format_road(random.choice(routes_list))
+            # Détection toujours "Manuelle" dans l'exemple
+            detection = "Manuelle"
+            # Couleur générée aléatoirement en hexadécimal
+            couleur = f"#{random.randint(0, 0xFFFFFF):06X}"
+            # Rayon : choix parmi quelques valeurs (exemples : 5, 7 ou 9)
+            radius = random.choice([5, 7, 9])
+            # Date, appareil et nom d'appareil fixes d'après l'exemple
+            date = "2025-02-28"
+            appareil = "Drone"
+            nom_appareil = "phantom"
+            
+            rows.append({
+                "ID": defect_id,
+                "classe": defect_class,
+                "gravite": gravite,
+                "coordonnees UTM": coordonnees,
+                "lat": lat,
+                "long": lon,
+                "routes": route,
+                "detection": detection,
+                "mission": mission_code,
+                "couleur": couleur,
+                "radius": radius,
+                "date": date,
+                "appareil": appareil,
+                "nom_appareil": nom_appareil
+            })
+            defect_counter_global += 1
+
+    df = pd.DataFrame(rows)
     return df
 
-def get_defects():
-    conn = connect_db()
-    query = "SELECT * FROM defects"
-    df = pd.read_sql(query, conn)
-    conn.close()
-    return df
+st.title("Générateur de base de données de défauts")
+st.write("Ce script génère une base de données (TXT) selon les scénarios proposés.")
 
-def add_mission(id_mission, operator, appareil_type, nom_appareil, date_mission, troncon):
-    conn = connect_db()
-    query = '''INSERT INTO missions (id, operator, appareil_type, nom_appareil, date, troncon)
-               VALUES (?, ?, ?, ?, ?, ?)'''
-    conn.execute(query, (id_mission, operator, appareil_type, nom_appareil, date_mission, troncon))
-    conn.commit()
-    conn.close()
-
-def delete_mission(id_mission):
-    conn = connect_db()
-    query = "DELETE FROM missions WHERE id = ?"
-    conn.execute(query, (id_mission,))
-    conn.commit()
-    conn.close()
-
-# =============================================================================
-# Chargement des données géographiques (routes) depuis un fichier JSON
-# =============================================================================
-
-try:
-    with open("routeQSD.txt", "r") as f:
-        routes_data = json.load(f)
-except Exception as e:
-    st.error("Erreur lors du chargement des données de routes : " + str(e))
-    routes_data = {"features": []}
-
-routes_list = []
-for feature in routes_data.get("features", []):
-    if feature["geometry"]["type"] == "LineString":
-        routes_list.append({
-            "coords": feature["geometry"]["coordinates"],
-            "nom": feature["properties"].get("ID", "Route inconnue")
-        })
-
-# Mapping pour attribuer des couleurs aux classes de défauts (optionnel)
-classe_colors = {
-    "deformations ornierage": "red",
-    "fissurations": "blue",
-    "faiençage": "green",
-    "fissure de retrait": "purple",
-    "fissure anarchique": "orange",
-    "reparations": "pink",
-    "nid de poule": "brown",
-    "fluage": "yellow",
-    "arrachements": "gray",
-    "depot de terre": "cyan",
-    "assainissements": "magenta",
-    "envahissement vegetations": "teal",
-    "chaussée detruite": "black",
-    "denivellement accotement": "darkblue"
-}
-
-# =============================================================================
-# Initialisation de l'application Streamlit
-# =============================================================================
-
-st.title("🛣️ Dashboard – Missions & Défauts Routiers")
-
-# Navigation via la sidebar
-st.sidebar.title("Navigation")
-section = st.sidebar.radio("Choisir une section", ["Tableau de Bord des Défauts", "Gestion des Missions"])
-
-# =============================================================================
-# Section 1 : Gestion des Missions
-# =============================================================================
-if section == "Gestion des Missions":
-    st.header("Gestion des Missions")
-    
-    # Afficher la liste des missions
-    st.subheader("Liste des Missions")
-    missions_df = get_missions()
-    st.dataframe(missions_df)
-    
-    # Formulaire pour ajouter une nouvelle mission
-    st.subheader("Ajouter une Mission")
-    with st.form(key='add_mission_form'):
-        id_mission = st.text_input("ID Mission")
-        operator = st.text_input("Opérateur")
-        appareil_type = st.selectbox("Type d'appareil", ["Drone", "Voiture", "Manuelle", "Mixte"])
-        nom_appareil = st.text_input("Nom de l'appareil")
-        date_mission = st.date_input("Date de la mission", datetime.today())
-        troncon = st.text_input("Tronçon")
-        
-        submit_add = st.form_submit_button("Ajouter la Mission")
-        if submit_add:
-            add_mission(id_mission, operator, appareil_type, nom_appareil, str(date_mission), troncon)
-            st.success("Mission ajoutée avec succès!")
-    
-    # Formulaire pour supprimer une mission
-    st.subheader("Supprimer une Mission")
-    mission_id_to_delete = st.text_input("Entrer l'ID de la mission à supprimer")
-    if st.button("Supprimer la Mission"):
-        delete_mission(mission_id_to_delete)
-        st.success(f"Mission {mission_id_to_delete} supprimée avec succès!")
-    
-    # Option pour télécharger la base de données
-    st.subheader("Télécharger la Base de Données")
-    if st.button("Télécharger la base de données"):
-        with open('base_donnees_missions.db', 'rb') as f:
-            st.download_button('Télécharger base_donnees_missions.db', f, file_name='base_donnees_missions.db')
-
-# =============================================================================
-# Section 2 : Tableau de Bord des Défauts
-# =============================================================================
-elif section == "Tableau de Bord des Défauts":
-    st.header("Tableau de Bord des Défauts")
-    
-    defects_df = get_defects()
-    
-    # Conversion de la colonne date en datetime
-    defects_df['date'] = pd.to_datetime(defects_df['date'], errors='coerce')
-    
-    # Filtres dans la sidebar pour les défauts
-    st.sidebar.subheader("Filtres pour Défauts")
-    unique_routes = defects_df['routes'].dropna().unique().tolist()
-    selected_routes = st.sidebar.multiselect("Sélectionner les routes", unique_routes, default=unique_routes)
-    
-    if not defects_df.empty:
-        min_date = defects_df['date'].min().date()
-        max_date = defects_df['date'].max().date()
-    else:
-        min_date = max_date = datetime.today().date()
-    
-    date_range = st.sidebar.date_input("Plage de dates", [min_date, max_date])
-    
-    # Filtrer les défauts selon les critères
-    filtered_defects = defects_df[
-        (defects_df['routes'].isin(selected_routes)) &
-        (defects_df['date'] >= pd.to_datetime(date_range[0])) &
-        (defects_df['date'] <= pd.to_datetime(date_range[1]))
+# Sélection du type de base de données dans la barre latérale
+option = st.sidebar.selectbox(
+    "Choisissez le type de base de données",
+    options=[
+        "100 défauts dans une mission",
+        "100 missions avec 1000 défauts détectés",
+        "150 missions avec 1000 défauts détectés"
     ]
-    
-    # Affichage des indicateurs clés
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Défauts", defects_df.shape[0])
-    with col2:
-        st.metric("Défauts filtrés", filtered_defects.shape[0])
-    with col3:
-        st.metric("Nombre de Missions", get_missions().shape[0])
-    
-    # Carte interactive avec Folium
-    st.subheader("Carte Interactive des Défauts")
-    # Centrer la carte sur la moyenne des coordonnées filtrées
-    if not filtered_defects.empty:
-        avg_lat = filtered_defects['lat'].mean()
-        avg_lon = filtered_defects['longitude'].mean()
-    else:
-        avg_lat, avg_lon = 5.237, -3.6349
-        
-    m = folium.Map(location=[avg_lat, avg_lon], zoom_start=12)
-    
-    # Afficher les routes (issue du fichier JSON)
-    for route in routes_list:
-        # Conversion des coordonnées : on suppose qu'elles sont en [lon, lat]
-        line_coords = [(coord[1], coord[0]) for coord in route["coords"]]
-        folium.PolyLine(
-            locations=line_coords,
-            color="blue",
-            weight=3,
-            opacity=0.7,
-            tooltip=route["nom"]
-        ).add_to(m)
-    
-    # Ajouter les défauts sur la carte
-    for idx, row in filtered_defects.iterrows():
-        # Utiliser la couleur enregistrée, ou la couleur associée à la classe
-        color = row['couleur'] if pd.notnull(row['couleur']) else classe_colors.get(row['classe'].lower(), "gray")
-        folium.CircleMarker(
-            location=[row['lat'], row['longitude']],
-            radius=3 + row['gravite'] * 2,
-            color=color,
-            fill=True,
-            fill_color=color,
-            popup=(
-                f"ID : {row['id']}<br>"
-                f"Classe : {row['classe']}<br>"
-                f"Gravité : {row['gravite']}<br>"
-                f"Route : {row['routes']}<br>"
-                f"Date : {row['date'].strftime('%Y-%m-%d') if pd.notnull(row['date']) else 'N/A'}"
-            ),
-            tooltip=f"{row['classe']} (Gravité {row['gravite']})"
-        ).add_to(m)
-    
-    st_folium(m, width=700, height=500)
-    
-    # Visualisations avec Plotly
-    st.sub
+)
+
+# Paramétrage en fonction de l'option sélectionnée
+if option == "100 défauts dans une mission":
+    num_missions = 1
+    total_defects = 100
+elif option == "100 missions avec 1000 défauts détectés":
+    num_missions = 100
+    total_defects = 1000
+elif option == "150 missions avec 1000 défauts détectés":
+    num_missions = 150
+    total_defects = 1000
+
+st.sidebar.write(f"Nombre de missions : **{num_missions}**")
+st.sidebar.write(f"Nombre total de défauts : **{total_defects}**")
+
+# Génération de la base de données
+df = generate_data(num_missions, total_defects)
+
+st.subheader("Aperçu de la base de données")
+st.dataframe(df.head(10))
+
+# Conversion de la DataFrame en chaîne de caractères au format CSV (séparateur tabulation)
+data_str = df.to_csv(sep="\t", index=False)
+
+# Bouton de téléchargement
+st.download_button(
+    label="Télécharger la base de données (TXT)",
+    data=data_str,
+    file_name="base_de_donnees.txt",
+    mime="text/plain"
+)
