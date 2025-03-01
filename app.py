@@ -1,130 +1,180 @@
 import streamlit as st
 import pandas as pd
 import random
+import json
+from datetime import datetime, timedelta
 
-# Liste de quelques routes de la Côte d'Ivoire
-routes_list = ["la cotiere", "A1", "A2", "A3", "A100", "A4", "A5"]
+# Dictionnaires de classes et tailles de gravité
+class_color = {
+    "deformations ornierage": "#FF0000",
+    "fissurations": "#00FF00",
+    "Faiençage": "#0000FF",
+    "fissure de retrait": "#FFFF00",
+    "fissure anarchique": "#FF00FF",
+    "reparations": "#00FFFF",
+    "nid de poule": "#FFA500",
+    "arrachements": "#800080",
+    "fluage": "#008000",
+    "denivellement accotement": "#000080",
+    "chaussée detruite": "#FFC0CB",
+    "envahissement vegetations": "#A52A2A",
+    "assainissements": "#808080",
+    "depot de terre": "#8B4513"
+}
+gravity_sizes = {1: 5, 2: 7, 3: 9}
 
-# Liste de classes de défauts (exemples)
-defect_classes = [
-    "deformations ornierage", "fissurations", "Faiençage", "fissure de retrait",
-    "fissure anarchique", "reparations", "nid de poule", "fluage", "arrachements",
-    "depot de terre", "assainissements", "envahissement vegetations",
-    "chaussée detruite", "denivellement accotement"
-]
+# Listes d'exemples pour opérateurs et appareils
+operators = ["BINTA", "Magassouba", "KONE", "OUATTARA"]
+appareil_types = ["Drone"]
+nom_appareils = ["mavic", "phantom", "inspire", "spark"]
 
-def format_road(road):
-    # Pour les routes de type A, on ajoute un descriptif
-    if road.startswith("A"):
-        return f"{road}(port-bouet, bassam)"
-    return road
+# Fonction pour générer une date aléatoire entre deux dates
+def random_date(start, end):
+    delta = end - start
+    random_days = random.randrange(delta.days)
+    return start + timedelta(days=random_days)
 
-def generate_data(num_missions, total_defects):
-    """
-    Génère une DataFrame avec les colonnes suivantes :
-    ID, classe, gravite, coordonnees UTM, lat, long, routes, detection, mission,
-    couleur, radius, date, appareil, nom_appareil.
-    """
-    rows = []
-    defect_counter_global = 1
+# Chargement du fichier GeoJSON (routeQSD.txt) contenant les routes
+@st.cache_data
+def load_routes(filepath):
+    with open(filepath, "r", encoding="utf-8") as f:
+        geojson = json.load(f)
+    features = geojson.get("features", [])
+    # On récupère la liste unique des IDs des routes
+    route_ids = list({feat["properties"].get("ID") for feat in features if "ID" in feat["properties"]})
+    return features, route_ids
 
-    # Répartition uniforme des défauts par mission
-    defects_per_mission = total_defects // num_missions
-    reste = total_defects % num_missions
+route_features, route_ids = load_routes("routeQSD.txt")
 
-    for m in range(1, num_missions + 1):
-        # Génération d'un code mission (ex: "20250228-001-I")
-        mission_code = f"20250228-{m:03d}-I"
-        # Ajustement pour le reste des défauts
-        nb_defects = defects_per_mission + (1 if m <= reste else 0)
-        for d in range(1, nb_defects + 1):
-            # ID du défaut (ex: "20250228-001-I-1")
-            defect_id = f"{mission_code}-{d}"
-            # Choix aléatoire de la classe de défaut
-            defect_class = random.choice(defect_classes)
-            # Gravité aléatoire entre 1 et 3
-            gravite = random.choice([1, 2, 3])
-            # Coordonnées UTM simulées (valeurs proches de l'exemple)
-            utm_x = round(random.uniform(429600, 429750), 2)
-            utm_y = round(random.uniform(578840, 579000), 2)
-            coordonnees = f"[{utm_x}, {utm_y}]"
-            # Latitude et longitude avec de petites variations
-            lat = round(random.uniform(5.2365, 5.2380), 4)
-            lon = round(random.uniform(-3.6355, -3.6340), 4)
-            # Choix aléatoire d'une route et formatage
-            route = format_road(random.choice(routes_list))
-            # Détection toujours "Manuelle" dans l'exemple
-            detection = "Manuelle"
-            # Couleur générée aléatoirement en hexadécimal
-            couleur = f"#{random.randint(0, 0xFFFFFF):06X}"
-            # Rayon : choix parmi quelques valeurs (exemples : 5, 7 ou 9)
-            radius = random.choice([5, 7, 9])
-            # Date, appareil et nom d'appareil fixes d'après l'exemple
-            date = "2025-02-28"
-            appareil = "Drone"
-            nom_appareil = "phantom"
-            
-            rows.append({
-                "ID": defect_id,
-                "classe": defect_class,
-                "gravite": gravite,
-                "coordonnees UTM": coordonnees,
-                "lat": lat,
-                "long": lon,
-                "routes": route,
-                "detection": detection,
-                "mission": mission_code,
-                "couleur": couleur,
-                "radius": radius,
-                "date": date,
-                "appareil": appareil,
-                "nom_appareil": nom_appareil
-            })
-            defect_counter_global += 1
+# Fonction qui, à partir d'un identifiant de route, retourne une coordonnée (lat, long)
+def get_random_coordinate(route_id):
+    for feat in route_features:
+        if feat["properties"].get("ID") == route_id:
+            coords = feat["geometry"]["coordinates"]
+            # Choix aléatoire d'un point dans la ligne
+            coord = random.choice(coords)
+            # GeoJSON stocke [longitude, latitude]
+            return coord[1], coord[0]
+    return round(random.uniform(5.2, 5.4), 6), round(random.uniform(-4.1, -3.9), 6)
 
-    df = pd.DataFrame(rows)
-    return df
+# Fonction pour générer des coordonnées UTM aléatoires (en mètres)
+def get_random_utm():
+    easting = round(random.uniform(397000, 430000), 2)
+    northing = round(random.uniform(578000, 594000), 2)
+    return (easting, northing)
 
-st.title("Générateur de base de données de défauts")
-st.write("Ce script génère une base de données (TXT) selon les scénarios proposés.")
+# Paramètres de génération
+num_missions = 130
+total_defauts = 1234
+base_defauts = 9
+extra_defauts = total_defauts - (base_defauts * num_missions)  # ici 64
 
-# Sélection du type de base de données dans la barre latérale
-option = st.sidebar.selectbox(
-    "Choisissez le type de base de données",
-    options=[
-        "100 défauts dans une mission",
-        "100 missions avec 1000 défauts détectés",
-        "150 missions avec 1000 défauts détectés"
-    ]
+# Répartition des défauts supplémentaires sur certaines missions
+missions_extra = random.sample(range(num_missions), extra_defauts)
+
+start_date = datetime(2023, 5, 1)
+end_date = datetime(2025, 2, 28)
+
+missions = []
+mission_defaut_count = 0
+
+# Génération des missions
+for i in range(num_missions):
+    mission_date = random_date(start_date, end_date)
+    date_str = mission_date.strftime("%Y%m%d")
+    mission_counter = f"{i+1:03d}"
+    letter = random.choice(["F", "D"])
+    mission_id = f"{date_str}-{mission_counter}-{letter}"
+    
+    operator = random.choice(operators)
+    appareil_type = random.choice(appareil_types)
+    nom_appareil = random.choice(nom_appareils)
+    
+    troncon = random.choice([f"pk{random.randint(1,20)}-pk{random.randint(20,100)}", "Route inconnue"])
+    
+    # Génération de la distance en km (entre 1 et 100 km)
+    distance = round(random.uniform(1, 100), 4)
+    
+    n_defauts = base_defauts + (1 if i in missions_extra else 0)
+    defauts = []
+    for j in range(n_defauts):
+        defaut_id = f"{mission_id}-{j+1}"
+        classe = random.choice(list(class_color.keys()))
+        gravite = random.choice([1, 2, 3])
+        utm = get_random_utm()
+        if random.random() < 0.8 and route_ids:
+            route_defaut = random.choice(route_ids)
+            lat, lon = get_random_coordinate(route_defaut)
+        else:
+            lat = round(random.uniform(5.2, 5.4), 6)
+            lon = round(random.uniform(-4.1, -3.9), 6)
+            route_defaut = "Route inconnue"
+        
+        defaut = {
+            "ID": defaut_id,
+            "classe": classe,
+            "gravite": gravite,
+            "coordonnees UTM": utm,
+            "lat": lat,
+            "long": lon,
+            "routes": route_defaut,
+            "detection": "Manuelle",
+            "mission": mission_id,
+            "couleur": class_color[classe],
+            "radius": gravity_sizes[gravite],
+            "date": mission_date.strftime("%Y-%m-%d"),
+            "appareil": appareil_type,
+            "nom_appareil": nom_appareil
+        }
+        defauts.append(defaut)
+        mission_defaut_count += 1
+
+    mission = {
+        "id": mission_id,
+        "operator": operator,
+        "appareil_type": appareil_type,
+        "nom_appareil": nom_appareil,
+        "date": mission_date.strftime("%Y-%m-%d"),
+        "troncon": troncon,
+        "distance(km)": distance,
+        "Données Défauts": defauts
+    }
+    missions.append(mission)
+
+st.write(f"Nombre total de missions générées : {len(missions)}")
+st.write(f"Nombre total de défauts générés : {mission_defaut_count}")
+
+# Affichage sous forme de DataFrame (les colonnes contenant des objets sont affichées en 'object')
+df = pd.DataFrame(missions)
+st.dataframe(df)
+
+# Téléchargement en CSV (tableau plat)
+@st.cache_data
+def convert_df(dataframe):
+    return dataframe.to_csv(index=False).encode('utf-8')
+
+csv = convert_df(df)
+st.download_button(
+    label="Télécharger le jeu de données en CSV",
+    data=csv,
+    file_name='jeu_donnees_missions.csv',
+    mime='text/csv'
 )
 
-# Paramétrage en fonction de l'option sélectionnée
-if option == "100 défauts dans une mission":
-    num_missions = 1
-    total_defects = 100
-elif option == "100 missions avec 1000 défauts détectés":
-    num_missions = 100
-    total_defects = 1000
-elif option == "150 missions avec 1000 défauts détectés":
-    num_missions = 150
-    total_defects = 1000
+# Conversion de la liste de missions en JSON (structure complète)
+json_data = json.dumps(missions, indent=4, ensure_ascii=False)
 
-st.sidebar.write(f"Nombre de missions : **{num_missions}**")
-st.sidebar.write(f"Nombre total de défauts : **{total_defects}**")
-
-# Génération de la base de données
-df = generate_data(num_missions, total_defects)
-
-st.subheader("Aperçu de la base de données")
-st.dataframe(df.head(10))
-
-# Conversion de la DataFrame en chaîne de caractères au format CSV (séparateur tabulation)
-data_str = df.to_csv(sep="\t", index=False)
-
-# Bouton de téléchargement
 st.download_button(
-    label="Télécharger la base de données (TXT)",
-    data=data_str,
-    file_name="base_de_donnees.txt",
-    mime="text/plain"
+    label="Télécharger le jeu de données en JSON",
+    data=json_data,
+    file_name='jeu_donnees_missions.json',
+    mime='application/json'
+)
+
+# Téléchargement en TXT (le contenu JSON est sauvegardé dans un fichier .txt)
+st.download_button(
+    label="Télécharger le jeu de données en TXT",
+    data=json_data,
+    file_name='jeu_donnees_missions.txt',
+    mime='text/plain'
 )
