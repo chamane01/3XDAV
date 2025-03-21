@@ -7,14 +7,13 @@ import rasterio
 import rasterio.warp
 from rasterio.plot import reshape_as_image
 from PIL import Image
-from rasterio.warp import transform_bounds
+from rasterio.warp import transform_bounds, calculate_default_transform, reproject
 import numpy as np
 import geopandas as gpd
 from shapely.geometry import Polygon, Point, LineString, shape
 import json
 from io import BytesIO
 from rasterio.enums import Resampling
-from rasterio.warp import calculate_default_transform, reproject
 import matplotlib.pyplot as plt
 import os
 import uuid  # Pour générer des identifiants uniques
@@ -551,8 +550,8 @@ draw.add_to(m)
 # Ajout du contrôle des couches pour basculer entre les fonds de carte
 LayerControl(position="topleft", collapsed=True).add_to(m)
 
-# Affichage interactif de la carte
-output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings"])
+# Affichage interactif de la carte (on demande également les "bounds" pour connaître l'emprise actuelle)
+output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings", "bounds"])
 
 # Gestion des nouveaux dessins
 if output and "last_active_drawing" in output and output["last_active_drawing"]:
@@ -709,15 +708,24 @@ def display_parameters(button_name):
                         xs, ys = geom.exterior.xy
                         ax.plot(xs, ys, color="green", linewidth=2)
         
+        # Si l'emprise dynamique est disponible, l'utiliser pour recadrer la figure
+        if output and "bounds" in output and output["bounds"]:
+            # Supposons que output["bounds"] soit de la forme [[south, west], [north, east]]
+            south, west = output["bounds"][0]
+            north, east = output["bounds"][1]
+            # Conversion des coordonnées de la vue dynamique en UTM
+            utm_bounds = transform_bounds("EPSG:4326", "EPSG:32630", west, south, east, north)
+            # utm_bounds est (minx, miny, maxx, maxy)
+            ax.set_xlim(utm_bounds[0], utm_bounds[2])
+            ax.set_ylim(utm_bounds[1], utm_bounds[3])
+        else:
+            st.warning("Emprise de la carte dynamique non disponible, affichage complet de la figure.")
+        
         # Personnalisation des axes pour afficher des coordonnées UTM
         ax.set_xlabel("UTM X")
         ax.set_ylabel("UTM Y")
         ax.set_title("Carte Statique")
         ax.grid(True)
-        
-        # Vous pouvez définir ou calculer dynamiquement les limites des axes si nécessaire.
-        # ax.set_xlim(xmin, xmax)
-        # ax.set_ylim(ymin, ymax)
         
         # Sauvegarder la figure dans un buffer et afficher l'image
         buf = BytesIO()
