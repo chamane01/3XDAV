@@ -432,7 +432,7 @@ draw = Draw(
 draw.add_to(m)
 LayerControl(position="topleft", collapsed=True).add_to(m)
 
-# Affichage interactif de la carte (demande également "bounds")
+# Affichage interactif de la carte
 output = st_folium(m, width=800, height=600, returned_objects=["last_active_drawing", "all_drawings", "bounds"])
 
 if output and "last_active_drawing" in output and output["last_active_drawing"]:
@@ -529,24 +529,19 @@ def display_parameters(button_name):
                     elif feature["geometry"]["type"] == "Polygon":
                         xs, ys = geom.exterior.xy
                         ax.plot(xs, ys, color="green", linewidth=2)
-        if output and "bounds" in output and output["bounds"]:
-            try:
-                # Extraction depuis le dictionnaire retourné par st_folium
-                south = output["bounds"]["southWest"][0]
-                west = output["bounds"]["southWest"][1]
-                north = output["bounds"]["northEast"][0]
-                east = output["bounds"]["northEast"][1]
-            except (KeyError, IndexError) as e:
-                st.error("La structure des 'bounds' retournés n'est pas celle attendue.")
-                south, west, north, east = None, None, None, None
-            if None not in (south, west, north, east):
-                utm_bounds = transform_bounds("EPSG:4326", "EPSG:32630", west, south, east, north)
-                ax.set_xlim(utm_bounds[0], utm_bounds[2])
-                ax.set_ylim(utm_bounds[1], utm_bounds[3])
-            else:
-                st.warning("Impossible d'extraire l'emprise dynamique, affichage complet de la figure.")
+        # Calcul de l'emprise à partir de toutes les polygonales (téléversées ou dessinées)
+        polygons_uploaded = find_polygons_in_layers(st.session_state["uploaded_layers"])
+        polygons_user_layers = find_polygons_in_user_layers(st.session_state["layers"])
+        polygons_drawn = st.session_state["new_features"]
+        all_polygons = polygons_uploaded + polygons_user_layers + polygons_drawn
+        if all_polygons:
+            polygons_gdf = convert_polygons_to_gdf(all_polygons)
+            minx, miny, maxx, maxy = polygons_gdf.total_bounds
+            utm_bounds = transform_bounds("EPSG:4326", "EPSG:32630", minx, miny, maxx, maxy)
+            ax.set_xlim(utm_bounds[0], utm_bounds[2])
+            ax.set_ylim(utm_bounds[1], utm_bounds[3])
         else:
-            st.warning("Emprise de la carte dynamique non disponible, affichage complet de la figure.")
+            st.warning("Aucune polygonale trouvée pour recadrer la carte, affichage complet de la figure.")
         ax.set_xlabel("UTM X")
         ax.set_ylabel("UTM Y")
         ax.set_title("Carte Statique")
