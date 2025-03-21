@@ -373,11 +373,8 @@ with st.sidebar:
     if st.session_state["layers"]:
         selected_layer = st.selectbox("Choisissez une couche pour voir ses entités", list(st.session_state["layers"].keys()))
         if st.session_state["layers"][selected_layer]:
-            entity_idx = st.selectbox(
-                "Sélectionnez une entité à gérer",
-                range(len(st.session_state["layers"][selected_layer])),
-                format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}"
-            )
+            entity_idx = st.selectbox("Sélectionnez une entité à gérer", range(len(st.session_state["layers"][selected_layer])),
+                                        format_func=lambda idx: f"Entité {idx + 1}: {st.session_state['layers'][selected_layer][idx]['geometry']['type']}")
             selected_entity = st.session_state["layers"][selected_layer][entity_idx]
             current_name = selected_entity.get("properties", {}).get("name", "")
             new_name = st.text_input("Nom de l'entité", current_name)
@@ -664,6 +661,74 @@ def display_parameters(button_name):
                 os.remove(mns_utm_path)
             if method == "Méthode 1 : MNS - MNT" and os.path.exists(mnt_utm_path):
                 os.remove(mnt_utm_path)
+                
+    elif button_name == "Télécharger la carte":
+        st.sidebar.markdown("### Paramètres de la carte statique")
+        # Création d'un dictionnaire pour gérer l'affichage des couches
+        display_options = {}
+        
+        # Pour les couches créées par l'utilisateur
+        for layer_name in st.session_state["layers"]:
+            display_options[layer_name] = st.sidebar.checkbox(f"Afficher la couche {layer_name}", value=True)
+        
+        # Pour les couches téléversées (TIFF et GeoJSON)
+        for layer in st.session_state["uploaded_layers"]:
+            display_options[layer["name"]] = st.sidebar.checkbox(f"Afficher la couche {layer['name']}", value=True)
+        
+        st.markdown("### Génération de la carte statique")
+        # Création d'une figure avec Matplotlib
+        fig, ax = plt.subplots(figsize=(10, 10))
+        
+        # Affichage des couches téléversées
+        for layer in st.session_state["uploaded_layers"]:
+            if display_options.get(layer["name"], False):
+                if layer["type"] == "TIFF":
+                    with rasterio.open(layer["path"]) as src:
+                        img = src.read(1)
+                        b = layer["bounds"]
+                        extent = [b.left, b.right, b.bottom, b.top]
+                        ax.imshow(img, extent=extent, cmap="terrain", origin="upper")
+                elif layer["type"] == "GeoJSON":
+                    try:
+                        gdf = gpd.GeoDataFrame.from_features(layer["data"]["features"])
+                        gdf.plot(ax=ax, edgecolor=geojson_colors.get(layer["name"], "blue"), facecolor="none", linewidth=2)
+                    except Exception as e:
+                        st.error(f"Erreur lors du tracé de la couche {layer['name']} : {e}")
+        
+        # Affichage des couches dessinées par l'utilisateur
+        for layer_name, features in st.session_state["layers"].items():
+            if display_options.get(layer_name, False):
+                for feature in features:
+                    geom = shape(feature["geometry"])
+                    if feature["geometry"]["type"] == "Point":
+                        ax.plot(geom.x, geom.y, 'o', color="red", markersize=5)
+                    elif feature["geometry"]["type"] == "LineString":
+                        xs, ys = geom.xy
+                        ax.plot(xs, ys, color="blue", linewidth=2)
+                    elif feature["geometry"]["type"] == "Polygon":
+                        xs, ys = geom.exterior.xy
+                        ax.plot(xs, ys, color="green", linewidth=2)
+        
+        # Personnalisation des axes pour afficher des coordonnées UTM
+        ax.set_xlabel("UTM X")
+        ax.set_ylabel("UTM Y")
+        ax.set_title("Carte Statique")
+        ax.grid(True)
+        
+        # Vous pouvez définir ou calculer dynamiquement les limites des axes si nécessaire.
+        # ax.set_xlim(xmin, xmax)
+        # ax.set_ylim(ymin, ymax)
+        
+        # Sauvegarder la figure dans un buffer et afficher l'image
+        buf = BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight")
+        buf.seek(0)
+        st.image(buf, caption="Aperçu de la carte statique")
+        
+        # Bouton pour télécharger l'image générée
+        st.download_button("Télécharger l'image", data=buf, file_name="carte_statique.png", mime="image/png")
+    else:
+        st.write("Aucun paramètre spécifique pour ce bouton.")
 
 # Ajout des boutons pour les analyses spatiales
 st.markdown("### Analyse Spatiale")
